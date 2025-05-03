@@ -30,6 +30,9 @@ const storeTokens = (accessToken: string, refreshToken: string) => {
   if (typeof window !== 'undefined') {
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
+    // Also set as cookie for middleware access
+    document.cookie = `accessToken=${accessToken}; path=/; SameSite=Lax; Max-Age=900`; // Max-Age=15 minutes
+    document.cookie = `refreshToken=${refreshToken}; path=/; SameSite=Lax; Max-Age=604800`; // Max-Age=7 days
   }
 };
 
@@ -37,10 +40,14 @@ const removeTokens = () => {
   if (typeof window !== 'undefined') {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
+    // Also remove cookies
+    document.cookie = 'accessToken=; path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    document.cookie = 'refreshToken=; path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
   }
 };
 
 const getAccessToken = (): string | null => {
+  // Prefer localStorage for client-side access, but could check cookies as fallback
   return typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
 };
 
@@ -62,18 +69,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Failed to fetch user profile:", error);
       // Token might be expired or invalid
-      removeTokens(); // Clear invalid tokens
+      // Don't remove tokens here, let the refresh logic handle it
       return null;
     }
   }, []);
+
+  // Function to read cookie
+    const getCookie = (name: string): string | null => {
+      if (typeof document === 'undefined') return null;
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+      return null;
+    };
 
   // Check authentication status on mount and potentially refresh token
   useEffect(() => {
     const checkAuthStatus = async () => {
       setIsLoading(true);
-      let currentToken = getAccessToken();
-      const refreshToken = getRefreshToken();
+      let currentToken = getAccessToken(); // Prefer localStorage
+      let refreshToken = getRefreshToken();
       let profileData: User | null = null;
+
+       // If localStorage is empty, check cookies (e.g., after page refresh before client hydration)
+      if (!currentToken) {
+          currentToken = getCookie('accessToken');
+      }
+       if (!refreshToken) {
+          refreshToken = getCookie('refreshToken');
+       }
+
 
       if (currentToken) {
         profileData = await fetchUserProfile(currentToken);
@@ -84,7 +109,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
          console.log("Access token invalid or missing, attempting refresh...");
         try {
           const { accessToken: newAccessToken } = await authService.refreshAccessToken(refreshToken);
-          storeTokens(newAccessToken, refreshToken); // Store new access token
+          storeTokens(newAccessToken, refreshToken); // Store new access token (localStorage + cookie)
           console.log("Token refreshed successfully.");
           currentToken = newAccessToken;
           profileData = await fetchUserProfile(currentToken); // Fetch profile with new token
@@ -92,7 +117,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
            console.error("Failed to refresh token:", refreshError);
            removeTokens(); // Clear tokens if refresh fails
         }
+      } else if (!profileData && !refreshToken) {
+          // If no profile, no access token, and no refresh token, definitely logged out
+          removeTokens();
       }
+
 
       setUser(profileData);
       setIsLoading(false);
@@ -134,7 +163,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Proceed with client-side logout anyway
     } finally {
         setUser(null);
-        removeTokens(); // Remove tokens from client
+        removeTokens(); // Remove tokens from client (localStorage + cookies)
         toast({ title: 'Logged Out', description: 'You have been successfully logged out.' });
         router.push('/'); // Redirect to home page after logout
         setIsLoading(false);
@@ -172,11 +201,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     register,
   };
 
-  // Render loading state or children based on isLoading
+  // Render children regardless of loading state
   return (
-      <AuthContext.Provider value={value}>
-          {children}
-      </AuthContext.Provider>
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 
