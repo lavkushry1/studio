@@ -1,6 +1,8 @@
+
+
 'use client';
 
-import { useState, useEffect, createContext, useContext, ReactNode, useCallback } from 'react';
+import React, { useState, useEffect, createContext, useContext, ReactNode, useCallback } from 'react';
 import { useRouter } from 'next/navigation'; // Use next/navigation for App Router
 import * as authService from '@/services/authService';
 import type { LoginFormValues, RegisterFormValues } from '@/lib/validation/auth';
@@ -213,10 +215,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Render children regardless of loading state
-  return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
+  return React.createElement(
+      AuthContext.Provider,
+      { value },
+      children
   );
 }
 
@@ -227,3 +229,4 @@ export function useAuth() {
   }
   return context;
 }
+

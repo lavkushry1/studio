@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation'; // Import useRouter
 import { Ticket, LogIn, UserPlus, Sun, Moon, User, LogOut, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/hooks/useAuth'; // Import useAuth
@@ -18,6 +19,7 @@ import {
 
 export function Header() {
   // const { theme, setTheme } = useTheme(); // Use later for theme toggle
+  const router = useRouter(); // Initialize router
   const { user, isAuthenticated, logout, isLoading } = useAuth(); // Get auth state and functions
 
   const getInitials = (name?: string | null): string => {
@@ -46,6 +48,11 @@ export function Header() {
                 Admin Panel
               </Link>
            )}
+           {user?.role === 'ORGANIZER' && ( // Show only for organizers (or admins)
+               <Link href="/admin/events/new" className="text-foreground/60 transition-colors hover:text-foreground/80 font-semibold text-accent">
+                  Create Event
+               </Link>
+            )}
           {/* Add more navigation links here as needed */}
         </nav>
         <div className="flex items-center justify-end space-x-2">
@@ -91,9 +98,9 @@ export function Header() {
                     <DropdownMenuItem asChild>
                         <Link href="/my-bookings"><Ticket className="mr-2 h-4 w-4" /> My Bookings</Link>
                     </DropdownMenuItem>
-                    {user.role === 'ADMIN' && (
+                    {(user.role === 'ADMIN' || user.role === 'ORGANIZER') && ( // Updated role check
                         <DropdownMenuItem asChild>
-                            <Link href="/admin" className="font-semibold"><User className="mr-2 h-4 w-4" /> Admin Panel</Link>
+                            <Link href="/admin" className="font-semibold"><User className="mr-2 h-4 w-4" /> Admin/Org Panel</Link>
                         </DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />
@@ -104,11 +111,13 @@ export function Header() {
             </DropdownMenu>
           ) : (
             <>
-              <Button asChild variant="ghost" size="sm">
-                 <Link href="/login">
-                    <LogIn className="mr-1 h-4 w-4" /> Login
-                 </Link>
-              </Button>
+              <Button
+                 variant="ghost"
+                 size="sm"
+                 onClick={() => router.push('/login')} // Use onClick and router
+               >
+                 <LogIn className="mr-1 h-4 w-4" /> Login
+               </Button>
               <Button asChild size="sm" className="bg-accent text-accent-foreground hover:bg-accent/90">
                 <Link href="/login?tab=signup">
                    <UserPlus className="mr-1 h-4 w-4" /> Sign Up
