@@ -28,6 +28,7 @@ export const createEvent = async (
             organizerId: userId, // Assign the creator as the organizer
             date: new Date(eventData.date), // Ensure date is a Date object
             status: eventData.status || EventStatus.DRAFT, // Default status if not provided
+            category: eventData.category, // Added category
             ticketCategories: {
                 create: ticketCategories.map(category => ({
                     name: category.name,
@@ -44,9 +45,9 @@ export const createEvent = async (
 };
 
 /**
- * Finds all events, optionally with filters and pagination.
+ * Finds all events, optionally with filters, search, and pagination.
  * By default, only returns PUBLISHED events unless specified otherwise (e.g., for admin view).
- * @param options - Filtering and pagination options (optional).
+ * @param options - Filtering, search, and pagination options (optional).
  * @param isAdminView - If true, bypasses the default PUBLISHED status filter.
  * @returns An array of event objects.
  */
@@ -58,16 +59,72 @@ export const findAllEvents = async (options?: {
     include?: Prisma.EventInclude
 }, isAdminView = false): Promise<Event[]> => {
 
-    const defaultWhere: Prisma.EventWhereInput = isAdminView ? {} : { status: EventStatus.PUBLISHED };
+    let whereClause: Prisma.EventWhereInput = isAdminView ? {} : { status: EventStatus.PUBLISHED };
+
+    // Combine default status filter with provided filters
+    if (options?.where) {
+        // Special handling for search query 'q'
+        if (options.where.OR && options.where.OR[0]?.title?.contains) { // Check if 'q' was provided
+            const searchQuery = (options.where.OR[0].title.contains as string) // Extract search term
+            whereClause = {
+                ...whereClause,
+                 _search: searchQuery, // Use the text index for search
+                // Keep other filters from options.where if they don't conflict directly with search
+                 ...(Object.keys(options.where).length > 1 ? options.where : {}),
+                 // Remove the OR clause used for search signaling
+                 OR: undefined,
+                 title: undefined, // Remove the fields used in OR
+                 description: undefined,
+                 location: undefined,
+                 category: undefined,
+
+            };
+             console.log("Search Query:", searchQuery);
+             console.log("Where Clause with Search:", JSON.stringify(whereClause, null, 2));
+
+        } else {
+             // Combine normally if no search query 'q'
+            whereClause = { ...whereClause, ...options.where };
+        }
+    }
+
 
     return prisma.event.findMany({
-        where: { ...defaultWhere, ...options?.where }, // Combine default and specific where clauses
+        where: whereClause,
         orderBy: options?.orderBy || { date: 'asc' }, // Default sort by date
         skip: options?.skip,
         take: options?.take,
         include: options?.include || { ticketCategories: true, organizer: { select: { id: true, name: true, email: true } } }, // Default include
     });
 };
+
+/**
+ * Counts events based on criteria.
+ * Respects admin view for status filtering.
+ * @param where - Filtering options.
+ * @param isAdminView - If true, bypasses the default PUBLISHED status filter.
+ * @returns The total count of matching events.
+ */
+export const countEvents = async (where?: Prisma.EventWhereInput, isAdminView = false): Promise<number> => {
+    const defaultWhere: Prisma.EventWhereInput = isAdminView ? {} : { status: EventStatus.PUBLISHED };
+    let whereClause: Prisma.EventWhereInput = { ...defaultWhere, ...where };
+
+    // Handle search query for count
+     if (where?.OR && where.OR[0]?.title?.contains) { // Check if 'q' was provided
+        const searchQuery = (where.OR[0].title.contains as string) // Extract search term
+         whereClause = {
+             ...whereClause,
+              _search: searchQuery, // Use the text index for search
+             OR: undefined, title: undefined, description: undefined, location: undefined, category: undefined,
+         };
+     }
+
+
+    return prisma.event.count({
+        where: whereClause,
+    });
+};
+
 
 /**
  * Finds a single event by its ID.
@@ -116,6 +173,7 @@ export const updateEvent = async (
             date: data.date ? new Date(data.date) : undefined, // Convert date string if provided
              // Prevent updating ticket categories via this endpoint for now
             ticketCategories: undefined, // Explicitly remove if passed in data
+            category: data.category, // Allow updating category
         },
         include: { ticketCategories: true }, // Return updated event with categories
     });

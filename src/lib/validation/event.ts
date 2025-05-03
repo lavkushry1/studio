@@ -18,6 +18,7 @@ const ticketCategorySchema = z.object({
 export const eventFormSchema = z.object({
   title: z.string().min(3, { message: 'Event title must be at least 3 characters.' }),
   description: z.string().min(10, { message: 'Event description must be at least 10 characters.' }),
+  category: z.string().min(1, { message: 'Category is required.'}).optional(), // Add category field
   // Use z.date() for Date objects from date pickers, or string().datetime() if expecting ISO strings directly
   date: z.date({ required_error: 'Event date and time are required.' }),
   location: z.string().min(3, { message: 'Event location must be at least 3 characters.' }),

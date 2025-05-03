@@ -15,7 +15,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { CalendarIcon, PlusCircle, Trash2, Loader2, Upload, Image as ImageIcon } from "lucide-react";
+import { CalendarIcon, PlusCircle, Trash2, Loader2, Upload, Image as ImageIcon, Tag } from "lucide-react"; // Added Tag icon
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
@@ -40,6 +40,7 @@ export function EventForm({ initialData }: EventFormProps) {
         defaultValues: initialData || {
             title: '',
             description: '',
+            category: '', // Initialize category
             date: undefined, // Start with undefined for date picker
             location: '',
             imageUrl: '',
@@ -106,7 +107,9 @@ export function EventForm({ initialData }: EventFormProps) {
                 title: "Event Created",
                 description: `"${newEvent.title}" has been successfully created.`,
             });
-            router.push('/admin/events'); // Redirect to events list or event details page
+            // TODO: Redirect to the newly created event's detail page or admin event list
+            // Example: router.push(`/admin/events/${newEvent.id}`);
+            router.push('/admin/events'); // Redirect to events list for now
         } catch (error: any) {
             console.error("Failed to create event:", error);
             toast({
@@ -136,6 +139,22 @@ export function EventForm({ initialData }: EventFormProps) {
                                     <FormLabel>Event Title</FormLabel>
                                     <FormControl>
                                         <Input placeholder="e.g., IPL Finals 2024" {...field} disabled={isLoading} />
+                                    </FormControl>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
+                         <FormField
+                            control={form.control}
+                            name="category"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Category</FormLabel>
+                                    <FormControl>
+                                        <div className="flex items-center gap-2">
+                                             <Tag className="h-5 w-5 text-muted-foreground"/>
+                                             <Input placeholder="e.g., Sports, Music, Conference" {...field} disabled={isLoading} />
+                                        </div>
                                     </FormControl>
                                     <FormMessage />
                                 </FormItem>
@@ -296,7 +315,7 @@ export function EventForm({ initialData }: EventFormProps) {
                                             <FormItem>
                                                 <FormLabel>Price (₹)</FormLabel>
                                                 <FormControl>
-                                                    <Input type="number" placeholder="e.g., 1500" {...field} disabled={isLoading} min="0" step="0.01" />
+                                                    <Input type="number" placeholder="e.g., 1500" {...field} onChange={e => field.onChange(parseFloat(e.target.value) || 0)} disabled={isLoading} min="0" step="0.01" />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -309,7 +328,7 @@ export function EventForm({ initialData }: EventFormProps) {
                                             <FormItem>
                                                 <FormLabel>Total Quantity</FormLabel>
                                                 <FormControl>
-                                                    <Input type="number" placeholder="e.g., 5000" {...field} disabled={isLoading} min="1" step="1" />
+                                                    <Input type="number" placeholder="e.g., 5000" {...field} onChange={e => field.onChange(parseInt(e.target.value, 10) || 0)} disabled={isLoading} min="1" step="1" />
                                                 </FormControl>
                                                 <FormMessage />
                                             </FormItem>
@@ -342,9 +361,9 @@ export function EventForm({ initialData }: EventFormProps) {
                             <PlusCircle className="mr-2 h-4 w-4" />
                             Add Ticket Category
                         </Button>
-                         {form.formState.errors.ticketCategories?.root && (
+                         {form.formState.errors.ticketCategories && !Array.isArray(form.formState.errors.ticketCategories) && (
                             <p className="text-sm font-medium text-destructive">
-                                {form.formState.errors.ticketCategories.root.message}
+                                {form.formState.errors.ticketCategories.message}
                             </p>
                         )}
                     </CardContent>

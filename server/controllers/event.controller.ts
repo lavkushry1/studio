@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import * as eventService from '../services/event.service';
-import { CreateEventInput, UpdateEventInput, UpdateEventParams, GetEventParams, DeleteEventParams } from '../validation/schemas';
+import { CreateEventInput, UpdateEventInput, UpdateEventParams, GetEventParams, DeleteEventParams, ListEventsQuery } from '../validation/schemas';
 import { Prisma, UserRole, EventStatus } from '@prisma/client'; // Import Prisma types if needed for query building
 
 /**
@@ -33,54 +33,80 @@ export const createEvent = async (req: Request<object, object, CreateEventInput>
  * Publicly accessible, but filters unpublished events unless user is admin.
  * Supports filtering via query params.
  */
-export const getAllEvents = async (req: Request, res: Response) => {
+export const getAllEvents = async (req: Request<object, object, object, ListEventsQuery>, res: Response) => {
   const isAdminView = req.user?.role === UserRole.ADMIN; // Check if the viewer is an admin
+  const { q, category, location, startDate, endDate, sortBy, order, page: pageStr, limit: limitStr } = req.query;
+
   try {
     const options: { where?: Prisma.EventWhereInput, skip?: number, take?: number, orderBy?: Prisma.EventOrderByWithRelationInput } = {};
+    let where: Prisma.EventWhereInput = {};
 
     // --- Filtering ---
     // Filter by status (allow admin to see all, others default to PUBLISHED)
     if (req.query.status) {
         if (isAdminView) {
-            options.where = { ...options.where, status: req.query.status as EventStatus };
+            where.status = req.query.status as EventStatus;
         } else if (req.query.status === EventStatus.PUBLISHED) {
-             options.where = { ...options.where, status: EventStatus.PUBLISHED };
+             where.status = EventStatus.PUBLISHED;
         } // Non-admins can only explicitly filter for PUBLISHED
     } else if (!isAdminView) {
         // Default filter for non-admins if no status query param
-         options.where = { ...options.where, status: EventStatus.PUBLISHED };
+         where.status = EventStatus.PUBLISHED;
     }
 
     // Filter by date range (example)
-    if (req.query.startDate) {
-       options.where = { ...options.where, date: { ...options.where?.date as Prisma.DateTimeFilter, gte: new Date(req.query.startDate as string) } };
+    if (startDate) {
+       where.date = { ...where.date as Prisma.DateTimeFilter, gte: new Date(startDate as string) };
     }
-     if (req.query.endDate) {
-       options.where = { ...options.where, date: { ...options.where?.date as Prisma.DateTimeFilter, lte: new Date(req.query.endDate as string) } };
+     if (endDate) {
+       where.date = { ...where.date as Prisma.DateTimeFilter, lte: new Date(endDate as string) };
     }
-    // Filter by location (example - partial match)
-    if (req.query.location) {
-        options.where = { ...options.where, location: { contains: req.query.location as string, mode: 'insensitive' } };
+    // Filter by location (partial match)
+    if (location) {
+        where.location = { contains: location as string, mode: 'insensitive' };
+    }
+    // Filter by category (exact match, case-insensitive)
+    if (category) {
+        where.category = { equals: category, mode: 'insensitive' };
     }
 
+    // Text Search (using 'q' query parameter)
+    if (q) {
+       // Signal to the service layer that a search is requested
+       // We use an OR condition with 'contains' on multiple fields as a proxy
+       // The service layer will convert this to a `_search` filter if a text index exists
+        where.OR = [
+            { title: { contains: q, mode: 'insensitive' } },
+            { description: { contains: q, mode: 'insensitive' } },
+            { location: { contains: q, mode: 'insensitive' } },
+            { category: { contains: q, mode: 'insensitive' } },
+        ];
+    }
+
+    options.where = where;
+
     // --- Pagination ---
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10; // Default 10 items per page
+    const page = parseInt(pageStr as string) || 1;
+    const limit = parseInt(limitStr as string) || 10; // Default 10 items per page
     options.skip = (page - 1) * limit;
     options.take = limit;
 
     // --- Sorting --- (Example: ?sortBy=date&order=desc)
-    const sortBy = req.query.sortBy as string || 'date'; // Default sort by date
-    const order = req.query.order as string || 'asc'; // Default order ascending
-    if (['date', 'title', 'createdAt'].includes(sortBy)) { // Allow sorting by specific fields
-         options.orderBy = { [sortBy]: order as Prisma.SortOrder };
+    const sortField = sortBy || 'date'; // Default sort by date
+    const sortOrder = order || 'asc'; // Default order ascending
+    if (['date', 'title', 'createdAt', 'location', 'category'].includes(sortField)) { // Allow sorting by specific fields
+         options.orderBy = { [sortField]: sortOrder as Prisma.SortOrder };
     }
 
 
     const events = await eventService.findAllEvents(options, isAdminView);
-    // TODO: Add count for pagination headers if needed
-    // const totalEvents = await eventService.countEvents(options.where, isAdminView);
-    // res.header('X-Total-Count', totalEvents.toString());
+    const totalEvents = await eventService.countEvents(options.where, isAdminView); // Get total count based on filters
+
+    res.setHeader('X-Total-Count', totalEvents.toString());
+    res.setHeader('X-Current-Page', page.toString());
+    res.setHeader('X-Per-Page', limit.toString());
+    res.setHeader('X-Total-Pages', Math.ceil(totalEvents / limit).toString());
+
     res.status(200).json(events);
   } catch (error: any) {
     console.error('Get all events error:', error);

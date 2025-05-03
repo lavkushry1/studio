@@ -21,6 +21,7 @@ interface AuthContextType {
   login: (credentials: LoginFormValues) => Promise<boolean>;
   logout: () => Promise<void>;
   register: (userData: RegisterFormValues) => Promise<boolean>;
+  getAccessToken: () => string | null; // Expose function to get token
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -49,7 +50,7 @@ const removeTokens = () => {
   }
 };
 
-const getAccessToken = (): string | null => {
+export const getAccessToken = (): string | null => {
   // Prefer localStorage for client-side access, but could check cookies as fallback
   return typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
 };
@@ -207,6 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     login,
     logout,
     register,
+    getAccessToken, // Provide the function in the context value
   };
 
   // Render children regardless of loading state

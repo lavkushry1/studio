@@ -38,14 +38,15 @@ export type LogoutInput = RefreshTokenInput;
 // Base schema for a ticket category during creation
 const TicketCategoryInputSchema = z.object({
   name: z.string().min(1, { message: 'Category name is required' }),
-  price: z.number().positive({ message: 'Price must be positive' }),
-  totalQty: z.number().int().positive({ message: 'Total quantity must be a positive integer' }),
+  price: z.coerce.number().positive({ message: 'Price must be positive' }), // Use coerce
+  totalQty: z.coerce.number().int().positive({ message: 'Total quantity must be a positive integer' }), // Use coerce
 });
 
 export const CreateEventSchema = z.object({
   body: z.object({
     title: z.string().min(1, { message: 'Event title is required' }),
     description: z.string().min(1, { message: 'Event description is required' }),
+    category: z.string().optional(), // Added category field
     date: z.string().datetime({ message: 'Invalid date-time format (ISO 8601 expected)' }), // Expect ISO string like "2024-12-31T19:00:00.000Z"
     location: z.string().min(1, { message: 'Event location is required' }),
     imageUrl: z.string().url({ message: 'Invalid image URL' }).optional(),
@@ -63,6 +64,7 @@ export const UpdateEventSchema = z.object({
   body: z.object({
     title: z.string().min(1).optional(),
     description: z.string().min(1).optional(),
+    category: z.string().optional(), // Added category field
     date: z.string().datetime().optional(),
     location: z.string().min(1).optional(),
     imageUrl: z.string().url().optional().nullable(), // Allow removing image by passing null
@@ -89,6 +91,23 @@ export const DeleteEventSchema = z.object({
     }),
 });
 export type DeleteEventParams = z.infer<typeof DeleteEventSchema>['params'];
+
+// Schema for List Events Query Parameters
+export const ListEventsSchema = z.object({
+    query: z.object({
+        q: z.string().optional(), // Search query
+        category: z.string().optional(), // Filter by category
+        location: z.string().optional(), // Filter by location
+        startDate: z.string().datetime().optional(), // Filter by start date
+        endDate: z.string().datetime().optional(), // Filter by end date
+        status: z.nativeEnum(EventStatus).optional(), // Filter by status
+        sortBy: z.enum(['date', 'title', 'createdAt', 'location', 'category']).default('date').optional(), // Sorting field
+        order: z.enum(['asc', 'desc']).default('asc').optional(), // Sorting order
+        page: z.coerce.number().int().min(1).default(1).optional(), // Pagination page
+        limit: z.coerce.number().int().min(1).max(100).default(10).optional(), // Pagination limit
+    }),
+});
+export type ListEventsQuery = z.infer<typeof ListEventsSchema>['query'];
 
 // ========== Booking Schemas ==========
 

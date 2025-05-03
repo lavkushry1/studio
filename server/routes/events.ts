@@ -1,7 +1,7 @@
 import express from 'express';
 import * as eventController from '../controllers/event.controller';
 import { validateRequest } from '../middleware/validate.middleware';
-import { CreateEventSchema, UpdateEventSchema, GetEventSchema, DeleteEventSchema } from '../validation/schemas';
+import { CreateEventSchema, UpdateEventSchema, GetEventSchema, DeleteEventSchema, ListEventsSchema } from '../validation/schemas'; // Import ListEventsSchema
 import { authenticateToken, authorizeRole } from '../middleware/auth.middleware'; // Import authorizeRole
 import { UserRole } from '@prisma/client'; // Import UserRole
 
@@ -11,7 +11,8 @@ const router = express.Router();
 const requireOrganizerOrAdmin = authorizeRole([UserRole.ORGANIZER, UserRole.ADMIN]);
 
 // GET /api/events - List all events (Public, with filtering based on role in controller)
-router.get('/', authenticateToken, eventController.getAllEvents); // Pass auth token to check role for filtering
+// Use validateRequest with ListEventsSchema for query parameter validation
+router.get('/', authenticateToken, validateRequest(ListEventsSchema), eventController.getAllEvents); // Pass auth token, validate query
 
 // GET /api/events/:eventId - Get a single event (Public, with filtering based on role in controller)
 router.get('/:eventId', authenticateToken, validateRequest(GetEventSchema), eventController.getEventById); // Pass auth token
