@@ -1,5 +1,6 @@
 'use client';
 
+import React, { memo } from 'react'; // Import memo
 import { useParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,7 +44,8 @@ const getTeamStyle = (team: Team | null): React.CSSProperties => {
     } as React.CSSProperties;
 };
 
-export default function EventDetailsPage() {
+// Wrap the component function with React.memo
+const EventDetailsPageContent = memo(() => {
     const params = useParams();
     const eventId = params.eventId as string;
     const { toast } = useToast();
@@ -269,4 +271,10 @@ export default function EventDetailsPage() {
             </div>
         </div>
     );
+});
+EventDetailsPageContent.displayName = 'EventDetailsPageContent';
+
+// Export the default function that uses the memoized component
+export default function EventDetailsPage() {
+  return <EventDetailsPageContent />;
 }

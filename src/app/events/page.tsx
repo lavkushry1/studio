@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react'; // Import memo
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams, useRouter, usePathname } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,6 +24,69 @@ interface EventResponse extends EventType {
     organizer: { id: string; name: string | null; email: string };
     team: Team | null; // Include team
 }
+
+// Define the props for the EventCard component
+interface EventCardProps {
+  event: EventResponse;
+}
+
+// Memoized Event Card Component
+const EventCard = memo(({ event }: EventCardProps) => {
+  return (
+    <Card key={event.id} className="overflow-hidden bg-card shadow-md hover:shadow-xl transition-all duration-300 flex flex-col border border-border hover:border-accent group">
+      <Link href={`/events/${event.id}`} className="block relative h-48 w-full bg-secondary overflow-hidden">
+        {event.imageUrl ? (
+          <Image
+            src={event.imageUrl}
+            alt={event.title}
+            layout="fill"
+            objectFit="cover"
+            className="transition-transform duration-300 group-hover:scale-105"
+            data-ai-hint="event image" // Generic hint
+          />
+        ) : (
+          <div className="h-full w-full flex items-center justify-center">
+            <Ticket className="h-16 w-16 text-muted-foreground" />
+          </div>
+        )}
+        {/* Team Logo Badge */}
+        {event.team && event.team.logoUrl && (
+          <div className="absolute top-2 right-2 bg-background/80 p-1 rounded-full w-8 h-8 flex items-center justify-center shadow backdrop-blur-sm">
+            <Image src={event.team.logoUrl} alt={`${event.team.shortName} logo`} width={24} height={24} objectFit="contain" />
+          </div>
+        )}
+        {/* Category Badge */}
+        {event.category && (
+          <Badge variant="secondary" className="absolute top-2 left-2">{event.category}</Badge>
+        )}
+      </Link>
+      <CardHeader className="pb-3 pt-4">
+        <CardTitle className="text-primary text-lg truncate group-hover:text-accent transition-colors">
+          <Link href={`/events/${event.id}`}>{event.title}</Link>
+        </CardTitle>
+        <CardDescription className="text-sm">
+          {new Date(event.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} - {event.location}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex-grow pb-4">
+        <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{event.description}</p>
+        {/* Display starting price or category info */}
+        {event.ticketCategories && event.ticketCategories.length > 0 && (
+          <p className="text-sm font-medium text-accent">
+            Tickets from ₹{Math.min(...event.ticketCategories.map(tc => tc.price)).toLocaleString('en-IN')}
+          </p>
+        )}
+      </CardContent>
+      <CardFooter className="pt-0">
+        <Button asChild className="w-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+          <Link href={`/events/${event.id}`}>View Details</Link>
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+});
+EventCard.displayName = 'EventCard'; // Add display name for React DevTools
+
 
 // Simple state management for filters (can be replaced with Zustand or similar)
 interface FilterState {
@@ -72,6 +135,7 @@ export default function EventsPage() {
         queryKey: ['teams'],
         queryFn: () => getTeams(getAccessToken()!), // Assuming getTeams requires token
         enabled: !!getAccessToken(), // Only fetch if token is available
+        staleTime: 60 * 60 * 1000, // Cache team list for 1 hour
     });
 
     // Update URL when filters change (debounced for text inputs)
@@ -134,6 +198,7 @@ export default function EventsPage() {
              return { events, totalCount, totalPages };
         },
         keepPreviousData: true, // Keep showing old data while new data loads
+        staleTime: 1 * 60 * 1000, // Consider events list slightly stale after 1 minute
     });
 
      useEffect(() => {
@@ -258,56 +323,7 @@ export default function EventsPage() {
                     <p className="text-sm text-muted-foreground mb-6">Showing {events.length} of {totalCount} events</p>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                         {events.map((event) => (
-                            <Card key={event.id} className="overflow-hidden bg-card shadow-md hover:shadow-xl transition-all duration-300 flex flex-col border border-border hover:border-accent group">
-                                <Link href={`/events/${event.id}`} className="block relative h-48 w-full bg-secondary overflow-hidden">
-                                    {event.imageUrl ? (
-                                        <Image
-                                            src={event.imageUrl}
-                                            alt={event.title}
-                                            layout="fill"
-                                            objectFit="cover"
-                                            className="transition-transform duration-300 group-hover:scale-105"
-                                            data-ai-hint="event image" // Generic hint
-                                        />
-                                    ) : (
-                                        <div className="h-full w-full flex items-center justify-center">
-                                            <Ticket className="h-16 w-16 text-muted-foreground" />
-                                        </div>
-                                    )}
-                                    {/* Team Logo Badge */}
-                                     {event.team && event.team.logoUrl && (
-                                         <div className="absolute top-2 right-2 bg-background/80 p-1 rounded-full w-8 h-8 flex items-center justify-center shadow backdrop-blur-sm">
-                                            <Image src={event.team.logoUrl} alt={`${event.team.shortName} logo`} width={24} height={24} objectFit="contain" />
-                                         </div>
-                                     )}
-                                     {/* Category Badge */}
-                                    {event.category && (
-                                        <Badge variant="secondary" className="absolute top-2 left-2">{event.category}</Badge>
-                                    )}
-                                </Link>
-                                <CardHeader className="pb-3 pt-4">
-                                    <CardTitle className="text-primary text-lg truncate group-hover:text-accent transition-colors">
-                                         <Link href={`/events/${event.id}`}>{event.title}</Link>
-                                    </CardTitle>
-                                    <CardDescription className="text-sm">
-                                        {new Date(event.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} - {event.location}
-                                    </CardDescription>
-                                </CardHeader>
-                                <CardContent className="flex-grow pb-4">
-                                    <p className="text-sm text-muted-foreground mb-3 line-clamp-2">{event.description}</p>
-                                    {/* Display starting price or category info */}
-                                    {event.ticketCategories && event.ticketCategories.length > 0 && (
-                                         <p className="text-sm font-medium text-accent">
-                                            Tickets from ₹{Math.min(...event.ticketCategories.map(tc => tc.price)).toLocaleString('en-IN')}
-                                        </p>
-                                    )}
-                                </CardContent>
-                                <CardFooter className="pt-0">
-                                    <Button asChild className="w-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
-                                        <Link href={`/events/${event.id}`}>View Details</Link>
-                                    </Button>
-                                </CardFooter>
-                            </Card>
+                            <EventCard key={event.id} event={event} /> // Use memoized component
                         ))}
                     </div>
                      {/* Pagination Controls */}

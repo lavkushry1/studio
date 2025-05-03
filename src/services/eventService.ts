@@ -10,12 +10,20 @@ type EventResponse = Event & {
     team: Team | null; // Include team relation
     venue: Venue | null; // Include venue relation
 };
-type EventsListResponse = EventResponse[];
+type EventsListResponse = EventResponse[]; // Direct array response
 
 // Fetch all events
 // The 'request' function now automatically adds the Authorization header if a token exists
 export const getEvents = async (params?: Record<string, string>): Promise<EventsListResponse> => {
-    return request<EventsListResponse>('/events', { params });
+    // Use the GET /api/events endpoint
+    const response = await fetch(`/api/events?${new URLSearchParams(params)}`);
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch events');
+    }
+    return response.json();
+    // Original implementation using generic request helper:
+    // return request<EventsListResponse>('/events', { params });
 };
 
 // Fetch a single event by ID

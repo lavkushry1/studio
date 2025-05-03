@@ -1,4 +1,4 @@
-// next.config.ts
+{// next.config.ts
 import type { NextConfig } from 'next';
 import path from 'path'; // Import path module
 
@@ -30,16 +30,35 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: 'https',
-        hostname: 'picsum.photos',
+        hostname: 'picsum.photos', // Placeholder images
         port: '',
         pathname: '/**',
       },
+       // Add other trusted image hostnames here (e.g., CDN, storage bucket)
+       // Example for Cloudinary:
+       // {
+       //   protocol: 'https',
+       //   hostname: 'res.cloudinary.com',
+       //   port: '',
+       //   pathname: `/${process.env.CLOUDINARY_CLOUD_NAME || 'your_cloud_name'}/**`, // Use env var for cloud name
+       // },
+       // Example for AWS S3 (replace with your bucket specifics):
+       // {
+       //   protocol: 'https',
+       //   hostname: 'your-bucket-name.s3.your-region.amazonaws.com',
+       //   port: '',
+       //   pathname: '/**',
+       // },
     ],
   },
-  // Add experimental features if needed
+  // --- Code Splitting and Lazy Loading ---
+  // Next.js automatically does code splitting per page.
+  // For component-level splitting, use `next/dynamic`.
+  // Example configuration options (usually not needed unless customizing):
   // experimental: {
-  //   appDir: true, // Already default in newer Next.js versions
+  //   granularChunks: true, // May help with smaller bundles, experiment if needed
   // },
+  // --- End Code Splitting ---
 };
 
 // Wrap the Next.js config with the PWA config

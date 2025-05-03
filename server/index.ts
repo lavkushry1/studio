@@ -4,6 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import { Prisma } from '@prisma/client'; // Import Prisma types
+// import { createClient } from 'redis'; // Uncomment if using Redis
 
 // Load environment variables based on NODE_ENV
 const envPath = process.env.NODE_ENV === 'production'
@@ -11,6 +12,18 @@ const envPath = process.env.NODE_ENV === 'production'
   : path.resolve(__dirname, '../../.env.development'); // Adjust path relative to server
 
 dotenv.config({ path: envPath });
+
+// --- Redis Client Setup (Optional) ---
+// let redisClient: any = null;
+// if (process.env.REDIS_URL) {
+//     redisClient = createClient({ url: process.env.REDIS_URL });
+//     redisClient.on('error', (err: Error) => console.error('Redis Client Error:', err));
+//     redisClient.connect().then(() => console.log('Connected to Redis.')).catch((err: Error) => console.error('Redis connection failed:', err));
+// } else {
+//     console.warn('REDIS_URL not found in environment variables. Redis caching will be disabled.');
+// }
+// --- End Redis Client Setup ---
+
 
 // Use Prisma Client from the shared lib folder
 import { prisma } from '@/lib/prisma';
@@ -62,6 +75,40 @@ app.use(cors()); // Enable CORS for all origins (adjust in production)
 app.use(express.json()); // Parse JSON request bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded request bodies
 
+// --- Basic Caching Middleware Placeholder (Implement actual logic) ---
+// const cacheMiddleware = (duration: number) => {
+//   return async (req: Request, res: Response, next: NextFunction) => {
+//     if (!redisClient || req.method !== 'GET') {
+//       return next(); // Skip cache for non-GET or if Redis is disabled
+//     }
+//     const key = `__express__${req.originalUrl || req.url}`;
+//     try {
+//       const cachedBody = await redisClient.get(key);
+//       if (cachedBody) {
+//         res.setHeader('X-Cache', 'HIT');
+//         res.setHeader('Content-Type', 'application/json');
+//         res.send(cachedBody);
+//         return;
+//       } else {
+//         res.setHeader('X-Cache', 'MISS');
+//         // Capture response to cache it later
+//         const originalSend = res.send;
+//         res.send = (body: any): Response<any> => {
+//           if (res.statusCode >= 200 && res.statusCode < 300) {
+//             redisClient.setEx(key, duration, JSON.stringify(body)).catch((err: Error) => console.error("Redis setEx error:", err));
+//           }
+//           return originalSend.call(res, body);
+//         };
+//         next();
+//       }
+//     } catch (err) {
+//       console.error("Redis get error:", err);
+//       next(); // Proceed without cache on error
+//     }
+//   };
+// };
+// --- End Caching Middleware Placeholder ---
+
 // Basic Logging Middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
@@ -87,6 +134,8 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 // API Routes
 app.use('/api/auth', authRoutes); // Mount auth routes
+// Example applying cache middleware to GET requests for events
+// app.get('/api/events', cacheMiddleware(60), eventRoutes); // Cache for 60 seconds
 app.use('/api/events', eventRoutes); // Mount event routes (includes seat routes now)
 app.use('/api/bookings', bookingRoutes); // Mount booking routes
 app.use('/api/admin', adminRoutes); // Mount admin routes
@@ -183,6 +232,7 @@ async function startServer() {
       console.log('Required ENV VARS: DATABASE_URL, PORT, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET, ACCESS_TOKEN_EXPIRATION, REFRESH_TOKEN_EXPIRATION');
        console.log('Optional Email ENV VARS: EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS, EMAIL_FROM');
        console.log('Optional Security ENV VARS: QR_CODE_SECRET');
+       // console.log('Optional Redis ENV VAR: REDIS_URL'); // Log if Redis URL is expected
       console.log(`Seat Reservation Timeout: ${RESERVATION_TIMEOUT_MINUTES} minutes`);
       console.log(`Booking Timeout: ${BOOKING_TIMEOUT_MINUTES} minutes`);
     });
@@ -198,6 +248,11 @@ async function startServer() {
             clearInterval(backgroundJobIntervalId);
             console.log('Background job runner stopped.');
          }
+         // Close Redis connection if exists
+         // if (redisClient && redisClient.isOpen) {
+         //     await redisClient.quit();
+         //     console.log('Redis connection closed.');
+         // }
          try {
              await prisma.$disconnect();
              console.log('Database connection closed.');

@@ -4,9 +4,51 @@ import { findAllEvents, countEvents } from '@/server/services/event.service'; //
 import { Prisma, EventStatus, UserRole } from '@prisma/client';
 import { listEventsSchema } from '@/server/validation/schemas'; // Use backend Zod schema
 import { verifyAccessToken } from '@/server/utils/jwt.utils'; // For checking admin role
+import { createClient } from 'redis'; // Import Redis client
+
+// --- Redis Client Setup (Consider moving to a shared lib/config) ---
+let redisClient: any = null;
+if (process.env.REDIS_URL) {
+    redisClient = createClient({ url: process.env.REDIS_URL });
+    redisClient.on('error', (err: Error) => console.error('API Route Redis Client Error:', err));
+    // Connect on demand or ensure connection before first use
+} else {
+    console.warn('API Route: REDIS_URL not found. Caching is disabled.');
+}
+// --- End Redis Client Setup ---
+
+const CACHE_DURATION_SECONDS = 60; // Cache event list for 60 seconds
 
 export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
+    const cacheKey = `events:${searchParams.toString()}`; // Generate unique key based on query params
+
+    // --- Check Cache ---
+    if (redisClient) {
+        try {
+            if (!redisClient.isOpen) await redisClient.connect(); // Ensure connected
+            const cachedData = await redisClient.get(cacheKey);
+            if (cachedData) {
+                console.log(`Cache HIT for key: ${cacheKey}`);
+                const parsedData = JSON.parse(cachedData);
+                // Reconstruct headers from cached data or assume defaults
+                const headers = new Headers();
+                headers.set('X-Cache', 'HIT');
+                headers.set('X-Total-Count', parsedData.totalCount?.toString() || '0');
+                headers.set('X-Current-Page', parsedData.currentPage?.toString() || '1');
+                headers.set('X-Per-Page', parsedData.limit?.toString() || '10');
+                headers.set('X-Total-Pages', parsedData.totalPages?.toString() || '1');
+                return NextResponse.json(parsedData.events, { headers });
+            }
+             console.log(`Cache MISS for key: ${cacheKey}`);
+             // Continue to fetch from DB if cache miss
+        } catch (cacheError) {
+            console.error(`Redis GET error for key ${cacheKey}:`, cacheError);
+            // Proceed without cache if error occurs
+        }
+    }
+    // --- End Cache Check ---
+
 
     // Validate query parameters using Zod schema
     const queryParams = Object.fromEntries(searchParams.entries());
@@ -72,13 +114,33 @@ export async function GET(request: Request) {
         // Fetch events and count using the service layer
         const events = await findAllEvents(options, isAdminView);
         const totalEvents = await countEvents(options.where, isAdminView);
+        const totalPages = Math.ceil(totalEvents / limit);
+
+        // --- Set Cache ---
+        if (redisClient && redisClient.isOpen) {
+            try {
+                const dataToCache = JSON.stringify({
+                    events,
+                    totalCount: totalEvents,
+                    currentPage: page,
+                    limit: limit,
+                    totalPages: totalPages
+                });
+                 await redisClient.setEx(cacheKey, CACHE_DURATION_SECONDS, dataToCache);
+                 console.log(`Cache SET for key: ${cacheKey}`);
+            } catch (cacheSetError) {
+                console.error(`Redis SETEX error for key ${cacheKey}:`, cacheSetError);
+            }
+        }
+        // --- End Set Cache ---
 
         // Set pagination headers
         const headers = new Headers();
+        headers.set('X-Cache', 'MISS'); // Indicate cache miss
         headers.set('X-Total-Count', totalEvents.toString());
         headers.set('X-Current-Page', page.toString());
         headers.set('X-Per-Page', limit.toString());
-        headers.set('X-Total-Pages', Math.ceil(totalEvents / limit).toString());
+        headers.set('X-Total-Pages', totalPages.toString());
 
         return NextResponse.json(events, { headers });
 
