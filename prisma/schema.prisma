@@ -1,0 +1,115 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  password     String // Hashed password
+  name         String?
+  role         UserRole  @default(USER)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  bookings     Booking[]
+  refreshToken String?   @unique // For JWT refresh tokens
+}
+
+model Event {
+  id              String           @id @default(cuid())
+  name            String
+  description     String
+  date            DateTime
+  location        String
+  imageUrl        String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  categories      TicketCategory[]
+  discountCodes   DiscountCode[]
+  bookings        Booking[]
+  isPublished     Boolean          @default(false)
+  createdById     String? // Optional: link to the admin who created it
+  // createdBy    User?            @relation(fields: [createdById], references: [id]) // If linking to User
+}
+
+model TicketCategory {
+  id        String   @id @default(cuid())
+  eventId   String
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  name      String // e.g., "General Admission", "VIP", "Lower Stand"
+  price     Float
+  totalQty  Int // Total quantity available for this category
+  bookedQty Int    @default(0) // Quantity already booked
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  bookings  Booking[]
+
+  @@unique([eventId, name]) // Ensure category names are unique per event
+}
+
+model Booking {
+  id               String         @id @default(cuid())
+  userId           String
+  user             User           @relation(fields: [userId], references: [id])
+  eventId          String
+  event            Event          @relation(fields: [eventId], references: [id])
+  ticketCategoryId String
+  ticketCategory   TicketCategory @relation(fields: [ticketCategoryId], references: [id])
+  quantity         Int
+  totalPrice       Float // Price after discount (if any)
+  status           BookingStatus  @default(PENDING)
+  deliveryDetails  Json? // Could store address, email, etc.
+  paymentMethod    String? // e.g., "UPI"
+  upiTransactionId String? // UTR Number submitted by user
+  discountCodeId   String?
+  discountCode     DiscountCode?  @relation(fields: [discountCodeId], references: [id])
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([userId])
+  @@index([eventId])
+  @@index([ticketCategoryId])
+}
+
+model DiscountCode {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  eventId     String
+  event       Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  discountType DiscountType // PERCENTAGE or FIXED
+  value       Float // Percentage value (e.g., 10 for 10%) or fixed amount
+  maxUses     Int? // Optional: Maximum number of times the code can be used
+  uses        Int       @default(0) // Number of times the code has been used
+  expiresAt   DateTime? // Optional: Expiry date for the code
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  bookings    Booking[]
+
+  @@index([eventId])
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum BookingStatus {
+  PENDING // Initial state, waiting for payment
+  PROCESSING // Payment submitted (UTR entered), awaiting admin verification
+  CONFIRMED // Payment verified by admin, ticket generated/sent
+  CANCELLED // Booking cancelled (e.g., payment failed, timeout)
+  FAILED // Payment verification failed
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}

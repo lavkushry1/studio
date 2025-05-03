@@ -1,0 +1,65 @@
+# Cursor Rules for Eventia Project
+
+# IMPORTANT (ALWAYS):
+# Always read memory-bank/architecture.md before writing any code. Include entire database schema.
+# Always read memory-bank/product-requirements-document.md before writing any code.
+# Always read memory-bank/project-best-practices.md before writing any code.
+# After adding a major feature or completing a milestone, update memory-bank/architecture.md.
+# After completing an implementation step, update memory-bank/progress.md.
+
+# REACT DEVELOPMENT RULES:
+Use React with TypeScript for all frontend development.
+Implement React components as function components with hooks.
+Use React Query for server state management.
+Organize components by feature in the components directory.
+Implement proper error handling in all API calls.
+Use Tailwind CSS for styling.
+Ensure mobile-first responsive design.
+
+# MONGODB DEVELOPMENT RULES:
+Use Mongoose for MongoDB schema definition and validation.
+Implement proper indexing for frequently queried fields.
+Use MongoDB aggregation pipeline for complex queries.
+Implement optimistic concurrency control for critical operations.
+Always validate data before saving to database.
+
+# CODE QUALITY RULES:
+Follow the TypeScript best practices.
+Keep functions small and focused on a single responsibility.
+Write meaningful comments for complex logic.
+Implement comprehensive error handling.
+Use async/await for asynchronous operations.
+Follow a consistent naming convention.
+
+# AUTHENTICATION RULES:
+Use JWT for authentication with refresh tokens.
+Implement proper password hashing with bcrypt.
+Add rate limiting for authentication endpoints.
+Validate all user inputs with Zod.
+Implement role-based access control.
+
+# UI/UX RULES:
+Implement loading states for all async operations.
+Provide meaningful error messages to users.
+Create a consistent UI across the application.
+Ensure proper form validation with helpful messages.
+Implement accessibility features (ARIA labels, keyboard navigation).
+
+# PAYMENT PROCESSING RULES:
+Implement secure UPI payment flow.
+Add proper logging for all payment operations.
+Implement robust UTR verification workflow.
+Handle payment timeouts and failures gracefully.
+
+# TESTING RULES:
+Write unit tests for all business logic.
+Implement integration tests for API endpoints.
+Add end-to-end tests for critical user flows.
+Test responsive design across different screen sizes.
+
+# RISK MANAGEMENT RULES:
+Identify potential risks before implementing each feature.
+Document security considerations for sensitive operations.
+Create contingency plans for high-traffic periods during IPL season.
+Implement proper error boundary handling in React components. 
+
