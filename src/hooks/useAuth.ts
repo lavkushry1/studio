@@ -35,8 +35,8 @@ const storeTokens = (accessToken: string, refreshToken: string) => {
     localStorage.setItem('refreshToken', refreshToken);
     // Also set as cookie for middleware access
     // Use environment variables for expiration times if possible
-    const accessTokenMaxAge = process.env.NEXT_PUBLIC_ACCESS_TOKEN_MAX_AGE || 900; // 15 minutes default
-    const refreshTokenMaxAge = process.env.NEXT_PUBLIC_REFRESH_TOKEN_MAX_AGE || 604800; // 7 days default
+    const accessTokenMaxAge = parseInt(process.env.NEXT_PUBLIC_ACCESS_TOKEN_MAX_AGE || '900', 10); // 15 minutes default
+    const refreshTokenMaxAge = parseInt(process.env.NEXT_PUBLIC_REFRESH_TOKEN_MAX_AGE || '604800', 10); // 7 days default
     document.cookie = `accessToken=${accessToken}; path=/; SameSite=Lax; Max-Age=${accessTokenMaxAge}`;
     document.cookie = `refreshToken=${refreshToken}; path=/; SameSite=Lax; Max-Age=${refreshTokenMaxAge}`;
   }
@@ -66,7 +66,10 @@ const getCookie = (name: string): string | null => {
     if (typeof document === 'undefined') return null;
     const value = `; ${document.cookie}`;
     const parts = value.split(`; ${name}=`);
-    if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+    if (parts.length === 2) {
+        const cookieValue = parts.pop()?.split(';').shift();
+        return cookieValue || null; // Ensure null is returned if cookieValue is empty string
+    }
     return null;
 };
 
