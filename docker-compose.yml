@@ -1,0 +1,65 @@
+# docker-compose.yml
+# Example for local development/testing - adapt for production orchestration
+
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "9002:9002" # Map host port 9002 to container port 9002
+    env_file:
+      - .env.development # Load development environment variables
+    environment:
+      # Ensure the frontend knows where the backend API is inside Docker network
+      NEXT_PUBLIC_API_URL: http://backend:3001/api
+    depends_on:
+      - backend # Ensure backend starts before frontend tries to connect
+    networks:
+      - eventia-net
+    volumes: # Optional: Mount volumes for local development hot-reloading (if not building image every time)
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    ports:
+      - "3001:3001" # Map host port 3001 to container port 3001
+    env_file:
+      - .env.development # Load development environment variables
+    depends_on:
+      - db # Ensure database is ready before backend starts
+    networks:
+      - eventia-net
+    volumes: # Optional: Mount volumes for local development hot-reloading
+      - .:/app
+      - /app/node_modules
+      - /app/dist
+
+  db: # Example MongoDB service (replace with your actual DB setup if needed locally)
+    image: mongo:latest # Use official MongoDB image
+    ports:
+      - "27017:27017" # Map default MongoDB port
+    volumes:
+      - mongo-data:/data/db # Persist database data
+    networks:
+      - eventia-net
+    environment:
+      # Set MongoDB credentials if needed (use .env file ideally)
+      # MONGO_INITDB_ROOT_USERNAME: user
+      # MONGO_INITDB_ROOT_PASSWORD: password
+      # MONGO_INITDB_DATABASE: eventia_db
+      # Note: For MongoDB Atlas, you don't run the DB locally via Docker.
+      # The backend service connects directly to Atlas using DATABASE_URL from .env.
+
+networks:
+  eventia-net:
+    driver: bridge
+
+volumes:
+  mongo-data: # Define the volume for MongoDB persistence

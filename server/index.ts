@@ -210,6 +210,16 @@ let backgroundJobIntervalId: NodeJS.Timeout | null = null;
 async function startServer() {
   try {
     // Test database connection using Prisma
+    console.log('Attempting to connect to database...');
+    // Use DATABASE_URL from environment variables for connection
+    if (!process.env.DATABASE_URL) {
+        throw new Error('DATABASE_URL environment variable is not set.');
+    }
+    if (process.env.DATABASE_URL.includes('mongodb+srv')) {
+        console.log('Connecting to MongoDB Atlas...');
+    } else {
+        console.log('Connecting to local/other MongoDB instance...');
+    }
     await prisma.$connect();
     console.log('Database connected successfully.');
 
@@ -237,7 +247,7 @@ async function startServer() {
       console.log(`Booking Timeout: ${BOOKING_TIMEOUT_MINUTES} minutes`);
     });
   } catch (error) {
-    console.error('Failed to connect to the database:', error);
+    console.error('Failed to start server or connect to the database:', error);
     process.exit(1); // Exit if database connection fails
   } finally {
     // Graceful shutdown

@@ -1,0 +1,160 @@
+# .github/workflows/deploy.yml
+
+name: Eventia CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main # Trigger on pushes to the main branch
+  pull_request:
+    branches:
+      - main # Trigger on pull requests to the main branch
+
+jobs:
+  test:
+    name: Test Application
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18' # Use Node.js version consistent with Dockerfiles
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Add Prisma generate step if tests depend on it
+      # - name: Generate Prisma Client
+      #   run: pnpm prisma:generate
+
+      # Add Linting step (optional but recommended)
+      - name: Lint code
+        run: pnpm lint
+
+      # Add Type Checking step (optional but recommended)
+      - name: Check types
+        run: pnpm typecheck
+
+      # Run tests (Add your actual test command here)
+      # Replace 'pnpm test' with your test script from package.json if different
+      # - name: Run tests
+      #   run: pnpm test
+      #   env:
+      #     # Set environment variables needed for tests (e.g., test database URL)
+      #     DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }} # Example using secrets
+
+  build:
+    name: Build Docker Images
+    needs: test # Run build only after tests pass
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' # Only build on pushes to main, not PRs
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Example: Login to Docker Hub (replace with your registry like GHCR, ECR, GCR)
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Example: Build and push Frontend image
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.frontend
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/eventia-frontend:latest # Replace with your image name
+          # Add build args if needed:
+          # build-args: |
+          #   NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }} # Use GitHub vars or secrets
+
+      # Example: Build and push Backend image
+      - name: Build and push Backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.backend
+          push: true
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/eventia-backend:latest # Replace with your image name
+          # Add build args if needed
+
+  # Example Deployment Job (Adapt to your hosting provider: Vercel, AWS, K8s, etc.)
+  deploy:
+    name: Deploy to Production
+    needs: build # Run deploy only after build succeeds
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' # Deploy only on pushes to main
+
+    environment: production # Optional: Link to GitHub environment for secrets/rules
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Example: Deploy to Vercel (Frontend)
+      # - name: Deploy Frontend to Vercel
+      #   uses: amondnet/vercel-action@v25 # Or official Vercel action
+      #   with:
+      #     vercel-token: ${{ secrets.VERCEL_TOKEN }}
+      #     vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+      #     vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID_FRONTEND }}
+      #     vercel-args: '--prod' # Deploy to production alias
+
+      # Example: Deploy Backend (e.g., using SSH to a server, deploying to ECS/EKS/App Runner)
+      # This step is highly dependent on your infrastructure.
+      # Option 1: SSH and docker-compose pull/up
+      - name: Deploy Backend via SSH (Example)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.PROD_SERVER_HOST }}
+          username: ${{ secrets.PROD_SERVER_USERNAME }}
+          key: ${{ secrets.PROD_SERVER_SSH_KEY }}
+          port: ${{ secrets.PROD_SERVER_PORT || 22 }}
+          script: |
+            cd /path/to/your/app/deployment # Navigate to your deployment directory
+            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" > .env.production
+            echo "PORT=${{ secrets.BACKEND_PORT || 3001 }}" >> .env.production
+            echo "ACCESS_TOKEN_SECRET=${{ secrets.ACCESS_TOKEN_SECRET }}" >> .env.production
+            echo "REFRESH_TOKEN_SECRET=${{ secrets.REFRESH_TOKEN_SECRET }}" >> .env.production
+            # Add other required env vars from secrets
+            echo "Pulling latest images..."
+            docker compose -f docker-compose.prod.yml pull # Assuming a separate prod compose file
+            echo "Restarting backend service..."
+            docker compose -f docker-compose.prod.yml up -d --no-deps backend # Restart only backend
+            echo "Deployment script finished."
+
+      # Option 2: Deploy to AWS ECS/EKS, Google Cloud Run, etc.
+      # - name: Deploy Backend to AWS ECS (Example placeholder)
+      #   uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      #   with:
+      #     task-definition: task-definition.json # Your ECS task definition
+      #     service: your-ecs-service-name
+      #     cluster: your-ecs-cluster-name
+      #     wait-for-service-stability: true
+
+      - name: Deployment successful
+        run: echo "Application deployed successfully!"
+
+# Notes on Secrets/Variables:
+# - DOCKERHUB_USERNAME, DOCKERHUB_TOKEN: Secrets for logging into Docker Hub.
+# - TEST_DATABASE_URL: Secret for the database connection string used during testing.
+# - DATABASE_URL: Secret for the production MongoDB Atlas connection string.
+# - ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET, etc.: JWT and other application secrets.
+# - PROD_SERVER_HOST, PROD_SERVER_USERNAME, PROD_SERVER_SSH_KEY: Secrets for deploying via SSH.
+# - VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID_FRONTEND: Secrets for Vercel deployment.
+# - Configure these secrets in your GitHub repository settings: Settings > Secrets and variables > Actions.
+# - Use GitHub Variables (Settings > Secrets and variables > Actions > Variables) for non-sensitive config like NEXT_PUBLIC_API_URL.

@@ -1,0 +1,48 @@
+# docker-compose.prod.yml
+# Example for production deployment using pre-built images
+
+version: '3.8'
+
+services:
+  frontend:
+    image: yourdockerhubusername/eventia-frontend:latest # Replace with your actual image name/tag
+    container_name: eventia-frontend-prod
+    restart: always
+    ports:
+      - "9002:9002"
+    env_file:
+      - .env.production # Load production environment variables
+    environment:
+      # Ensure NEXT_PUBLIC_API_URL points to the correct backend location in production
+      # If backend runs on the same host: http://localhost:3001/api (if mapped)
+      # If backend runs in another container on same network: http://backend:3001/api
+      NEXT_PUBLIC_API_URL: http://backend:3001/api # Example assuming container network
+    depends_on:
+      - backend
+    networks:
+      - eventia-net-prod
+
+  backend:
+    image: yourdockerhubusername/eventia-backend:latest # Replace with your actual image name/tag
+    container_name: eventia-backend-prod
+    restart: always
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env.production # Load production environment variables
+    # No depends_on for DB if using external DB like MongoDB Atlas
+    networks:
+      - eventia-net-prod
+
+# No db service needed if using MongoDB Atlas
+# Database connection string (DATABASE_URL) should be set in .env.production
+
+networks:
+  eventia-net-prod:
+    driver: bridge
+
+# Note: This is a basic example. Production deployments often involve:
+# - Reverse Proxies (Nginx, Traefik) for SSL termination, load balancing.
+# - More sophisticated orchestration (Kubernetes, ECS, Swarm).
+# - Centralized logging and monitoring.
+# - Secure secret management (Vault, AWS Secrets Manager, etc.) instead of .env files directly on the host.

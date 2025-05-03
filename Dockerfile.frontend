@@ -1,0 +1,70 @@
+# Dockerfile.frontend
+
+# Use an official Node.js runtime as a parent image
+# Choose a version compatible with your project (e.g., Node 18 or 20)
+FROM node:18-alpine AS base
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy package.json and lock file (package-lock.json or yarn.lock or pnpm-lock.yaml)
+# Use separate layers for dependency caching
+COPY package.json ./
+COPY pnpm-lock.yaml ./
+# If using npm: COPY package-lock.json ./
+# If using yarn: COPY yarn.lock ./
+
+# Install pnpm globally (adjust if using npm or yarn)
+RUN npm install -g pnpm
+
+# Install dependencies using pnpm
+RUN pnpm install --frozen-lockfile --prod=false
+
+# Copy the rest of the application code
+COPY . .
+
+# --- Build Stage ---
+FROM base AS builder
+
+# Set build-time environment variables if needed (e.g., NEXT_PUBLIC_...)
+# ARG NEXT_PUBLIC_API_URL
+# ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
+# Build the Next.js application
+# Ensure Prisma Generate runs before build
+RUN pnpm prisma:generate
+RUN pnpm build
+
+# Remove development dependencies after build
+RUN pnpm prune --prod
+
+# --- Production Stage ---
+FROM node:18-alpine AS production
+
+# Set the working directory
+WORKDIR /app
+
+# Set environment to production
+ENV NODE_ENV=production
+
+# Copy built assets and necessary files from the builder stage
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/pnpm-lock.yaml ./
+# If using npm: COPY --from=builder /app/package-lock.json ./
+# If using yarn: COPY --from=builder /app/yarn.lock ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/next.config.ts ./ # Copy config file
+# Copy server build output if frontend needs it (unlikely if backend is separate)
+# COPY --from=builder /app/dist ./dist
+
+# Install pnpm globally for running the start script
+RUN npm install -g pnpm
+
+# Expose the port the app runs on (Default is 3000, but check your setup or package.json start script)
+EXPOSE 9002
+
+# Define the command to run the application
+# Use the custom port defined in package.json dev script, assuming start does too or configure explicitly
+CMD ["pnpm", "start", "-p", "9002"]

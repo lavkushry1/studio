@@ -1,0 +1,46 @@
+# .dockerignore
+
+# Version control
+.git
+.gitignore
+
+# Node dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Build outputs (we build inside Docker)
+dist
+.next
+
+# Environment files (should be injected, not copied)
+.env*
+!.env.example
+
+# Editor configuration
+.vscode
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Test files and configurations (if not needed in final image)
+# coverage
+# **/*.test.ts
+# **/*.spec.ts
+# jest.config.js
+# playwright.config.ts
+
+# Temporary files
+*.tmp
+*.log
+
+# Memory Bank (Project IDX specific)
+/memory-bank
+
+# Frontend source if building backend, and vice-versa
+# (Handled by selective COPY in Dockerfiles, but good to have here too)
+# src/
+# server/
