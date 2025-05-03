@@ -1,3 +1,5 @@
+// CheckoutPage component remains largely the same, only modifying the payment step section
+
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -7,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Ticket, Tag, CreditCard, ShoppingCart, ArrowLeft, QrCode, Upload, CheckCircle, Loader2, XCircle, User, Mail, Phone, Armchair } from 'lucide-react'; // Added Armchair icon
+import { Ticket, Tag, CreditCard, ShoppingCart, ArrowLeft, QrCode, Upload, CheckCircle, Loader2, XCircle, User, Mail, Phone, Armchair, ExternalLink } from 'lucide-react'; // Added Armchair, ExternalLink icons
 import Image from 'next/image';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast'; // Import useToast
@@ -40,6 +42,8 @@ interface EventResponse extends EventType {
     ticketCategories: TicketCategoryType[];
     organizer: { id: string; name: string | null; email: string };
     hasSeatMap: boolean; // Ensure this is included
+    team: any; // Add team details if needed by checkout summary
+    venue: any; // Add venue details if needed
 }
 
 export default function CheckoutPage() {
@@ -66,6 +70,7 @@ export default function CheckoutPage() {
   const [validationErrors, setValidationErrors] = useState<{ [key: string]: string }>({}); // For form validation
   const [booking, setBooking] = useState<BookingType | null>(null); // Store created booking
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string | null>(null); // State for QR code image data
+  const [upiUri, setUpiUri] = useState<string | null>(null); // State for UPI intent URI
 
 
   // Fetch event details using React Query
@@ -92,21 +97,61 @@ export default function CheckoutPage() {
         staleTime: 30 * 60 * 1000, // Cache UPI ID for 30 minutes
     });
 
-    // Generate QR Code when UPI ID and price are available
+   // Calculate finalTotalPrice memoized
+   const finalTotalPrice = useMemo(() => {
+        let basePricePerItem = 0;
+        let quantityOrSeats = 0;
+        let totalPrice = 0;
+
+        if (isSeatMapEvent) {
+             // Price calculation for seat-based booking
+             const selectedSeatDetails = selectedSeats.map(id => seatsData?.find(s => s.id === id)).filter(Boolean) as SeatType[];
+             basePricePerItem = selectedSeatDetails[0]?.price || event?.ticketCategories[0]?.price || 0;
+             totalPrice = selectedSeatDetails.reduce((sum, seat) => {
+                const categoryPrice = event?.ticketCategories?.find(cat => cat.id === seat.ticketCategoryId)?.price; // Match seat to category if possible
+                const price = seat.price ?? categoryPrice ?? event?.ticketCategories[0]?.price ?? 0; // Fallback logic
+                return sum + price;
+             }, 0);
+             quantityOrSeats = selectedSeats.length;
+         } else {
+             // Price calculation for quantity-based booking
+             const category = event?.ticketCategories?.find(cat => cat.id === categoryId);
+             if (category) {
+                 basePricePerItem = category.price;
+                 quantityOrSeats = quantity;
+                 totalPrice = basePricePerItem * quantityOrSeats;
+             }
+         }
+        const subtotal = totalPrice;
+        let calculatedDiscount = 0;
+         if (discountApplied && discountType) {
+             calculatedDiscount = discountType === 'PERCENTAGE' ? subtotal * discountValue : discountValue;
+             calculatedDiscount = Math.min(calculatedDiscount, subtotal);
+         }
+        return subtotal - calculatedDiscount;
+    }, [isSeatMapEvent, selectedSeats, seatsData, event, categoryId, quantity, discountApplied, discountType, discountValue]);
+
+
+    // Generate QR Code and UPI URI when UPI ID and price are available
     useEffect(() => {
         if (step === 'payment' && activeUpiId && finalTotalPrice > 0) {
             // Format according to UPI intent spec (adjust fields as needed)
-            const upiUri = `upi://pay?pa=${activeUpiId}&pn=TicketFlow&am=${finalTotalPrice.toFixed(2)}&cu=INR&tn=Booking for ${event?.title || 'Event'}`;
-            QRCode.toDataURL(upiUri, { errorCorrectionLevel: 'M', width: 250 }) // Generate Data URL
+            const generatedUpiUri = `upi://pay?pa=${activeUpiId}&pn=TicketFlow&am=${finalTotalPrice.toFixed(2)}&cu=INR&tn=Booking for ${event?.title || 'Event'}`;
+            setUpiUri(generatedUpiUri); // Store the URI for the deep link button
+
+            QRCode.toDataURL(generatedUpiUri, { errorCorrectionLevel: 'M', width: 250 }) // Generate Data URL
                 .then(url => {
                     setQrCodeDataUrl(url);
                 })
                 .catch(err => {
                     console.error('QR code generation failed:', err);
                     toast({ title: "QR Code Error", description: "Could not generate payment QR code.", variant: "destructive" });
+                    setQrCodeDataUrl(null); // Clear on error
+                    setUpiUri(null);
                 });
         } else {
             setQrCodeDataUrl(null); // Clear QR code if not on payment step or data missing
+            setUpiUri(null); // Clear UPI URI
         }
     }, [step, activeUpiId, finalTotalPrice, event?.title, toast]);
 
@@ -126,7 +171,8 @@ export default function CheckoutPage() {
             const firstSeat = seatsData.find(s => s.id === selectedSeats[0]);
             // TODO: Need a way to link seat section/type to a TicketCategory ID or price
             // For now, just returning the first category of the event as a placeholder
-            return event.ticketCategories[0];
+             const categoryForSeat = event.ticketCategories.find(cat => cat.id === firstSeat?.ticketCategoryId); // Match via linked category ID
+            return categoryForSeat || event.ticketCategories[0]; // Fallback to first event category
       }
       return null;
   }, [isSeatMapEvent, categoryId, event, selectedSeats, seatsData]);
@@ -135,36 +181,29 @@ export default function CheckoutPage() {
       return selectedSeats.map(id => seatsData?.find(s => s.id === id)).filter(Boolean) as SeatType[];
   }, [selectedSeats, seatsData]);
 
-  // Calculate totals
-  let basePricePerItem = 0;
-  let quantityOrSeats = 0;
-  let totalPrice = 0; // Initialize totalPrice
+  // Calculate totals (moved calculation to finalTotalPrice useMemo)
+  const quantityOrSeats = bookingType === 'seat' ? selectedSeats.length : quantity;
+  const subtotal = useMemo(() => {
+      if (bookingType === 'seat') {
+         return selectedSeatDetails.reduce((sum, seat) => {
+            const categoryPrice = event?.ticketCategories?.find(cat => cat.id === seat.ticketCategoryId)?.price;
+            const price = seat.price ?? categoryPrice ?? event?.ticketCategories[0]?.price ?? 0;
+            return sum + price;
+         }, 0);
+      } else if (category) {
+         return category.price * quantity;
+      }
+      return 0;
+  }, [bookingType, selectedSeatDetails, category, quantity, event]);
 
-  if (bookingType === 'seat') {
-      // Price calculation for seat-based booking (sum of selected seats' prices)
-      basePricePerItem = selectedSeatDetails[0]?.price || category?.price || 0; // Use seat price or category price
-      totalPrice = selectedSeatDetails.reduce((sum, seat) => {
-          // Use price from seat if available, otherwise fallback to category price
-          const price = seat.price ?? category?.price ?? 0;
-          return sum + price;
-      }, 0);
-      quantityOrSeats = selectedSeats.length;
+  const calculatedDiscount = useMemo(() => {
+      if (discountApplied && discountType) {
+         let discount = discountType === 'PERCENTAGE' ? subtotal * discountValue : discountValue;
+         return Math.min(discount, subtotal);
+      }
+      return 0;
+  }, [subtotal, discountApplied, discountType, discountValue]);
 
-  } else if (category) {
-      // Price calculation for quantity-based booking
-      basePricePerItem = category.price;
-      quantityOrSeats = quantity;
-      totalPrice = basePricePerItem * quantityOrSeats;
-  }
-
-  const subtotal = totalPrice;
-
-  let calculatedDiscount = 0;
-  if (discountApplied && discountType) {
-    calculatedDiscount = discountType === 'PERCENTAGE' ? subtotal * discountValue : discountValue;
-    calculatedDiscount = Math.min(calculatedDiscount, subtotal);
-  }
-  const finalTotalPrice = subtotal - calculatedDiscount;
 
 
   // Initial setup and validation effect
@@ -544,13 +583,16 @@ export default function CheckoutPage() {
                             <Tag className="h-4 w-4 text-accent"/>
                             <span className="font-medium">{category.name}</span>
                         </div>
-                        <span className="font-semibold text-primary">₹{basePricePerItem.toLocaleString('en-IN')} / ticket</span>
+                         {/* Display base price per item only for quantity type */}
+                         {bookingType === 'quantity' && (
+                           <span className="font-semibold text-primary">₹{(category?.price || 0).toLocaleString('en-IN')} / ticket</span>
+                         )}
                     </div>
                 ) : null}
               </div>
 
               {/* Quantity (Only for quantity-based booking) */}
-               {bookingType === 'quantity' && (
+               {bookingType === 'quantity' && category && (
                   <div className="flex items-center space-x-4">
                     <Label htmlFor="quantity" className="min-w-[80px] shrink-0">Quantity</Label>
                     <Input
@@ -561,6 +603,7 @@ export default function CheckoutPage() {
                       value={quantity}
                       onChange={(e) => {
                           const val = parseInt(e.target.value, 10);
+                           // Basic check, ideally check against available category.totalQty - category.bookedQty
                           if (val >= 1 && val <= 10) setQuantity(val);
                       }}
                       className="w-24 bg-background border-input"
@@ -653,7 +696,7 @@ export default function CheckoutPage() {
                     <CardTitle className="flex items-center gap-2"><QrCode className="h-6 w-6 text-primary"/> Complete Payment via UPI</CardTitle>
                      <CardDescription>
                          {isLoadingUpiId ? 'Loading payment details...' :
-                         activeUpiId ? <>Scan the QR code using your UPI app or use the UPI ID below to pay <strong className="text-primary">₹{finalTotalPrice.toLocaleString('en-IN')}</strong>.</>
+                         activeUpiId ? <>Scan the QR code or use the button below to pay <strong className="text-primary">₹{finalTotalPrice.toLocaleString('en-IN')}</strong>.</>
                          : <span className="text-destructive">UPI Payment is currently unavailable. Please contact support.</span>}
                      </CardDescription>
                 </CardHeader>
@@ -668,17 +711,19 @@ export default function CheckoutPage() {
                                      {qrCodeDataUrl ? (
                                         <Image src={qrCodeDataUrl} alt="UPI QR Code" layout="fill" objectFit="contain" data-ai-hint="qr code payment" />
                                      ) : (
-                                        <div className="flex items-center justify-center h-full"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground"/></div>
+                                        <div className="flex items-center justify-center h-full"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground"/> Generating QR...</div>
                                      )}
                                  </div>
                             </div>
-                            <p className="text-muted-foreground">or pay using UPI ID:</p>
-                             <Badge variant="outline" className="font-mono text-base text-primary bg-secondary/50 px-4 py-1.5 rounded-md cursor-pointer border-border hover:border-accent" onClick={() => {
-                                 navigator.clipboard.writeText(activeUpiId);
-                                 toast({ title: "Copied!", description: "UPI ID copied to clipboard." });
-                             }} title="Click to copy">
-                                {activeUpiId}
-                            </Badge>
+                            <p className="text-muted-foreground">or</p>
+                            {/* UPI Deep Link Button */}
+                            <Button asChild variant="outline" size="lg" className="border-accent text-accent hover:bg-accent/10" disabled={!upiUri}>
+                                <a href={upiUri ?? '#'} target="_blank" rel="noopener noreferrer">
+                                    Pay via UPI App <ExternalLink className="ml-2 h-4 w-4"/>
+                                </a>
+                            </Button>
+                             {/* Copy UPI ID */}
+                             <p className="text-xs text-muted-foreground">Manual ID: <Badge variant="outline" className="font-mono text-xs text-primary bg-secondary/50 px-1.5 py-0.5 rounded cursor-pointer border-border hover:border-accent" onClick={() => { navigator.clipboard.writeText(activeUpiId); toast({ title: "Copied!", description: "UPI ID copied to clipboard." }); }} title="Click to copy">{activeUpiId}</Badge></p>
 
                              <Separator className="w-full my-4" />
 
