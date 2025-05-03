@@ -1,63 +1,40 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.js
-.yarn/install-state.gz
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-/dist
-
-# misc
-.DS_Store
-*.pem
-
-# debug
+# Node.js
+node_modules
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
-
-# local env files
-.env.local
+pnpm-debug.log*
+lerna-debug.log*
+*.env
+.env*.local
 .env.development.local
 .env.test.local
 .env.production.local
-# Environment files (keep .env.example if you have one)
-.env
-.env.*
-!.env.example
+
+# Next.js
+.next/
+out/
+build/
+dist/
+
+# TypeScript
+*.tsbuildinfo
 
 # Prisma
-prisma/dev.db
-prisma/dev.db-journal
+*.db
+*.db-journal
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# editor directories and files
-.vscode/*
-!.vscode/settings.json
-!.vscode/tasks.json
-!.vscode/launch.json
-!.vscode/extensions.json
-*.sublime-workspace
-
-#vercel
-.vercel
-
-# Optional: Firebase Emulator Data
-# .firebase/emulators/
-
-# Optional: Output files from code generation
-# src/generated/
+# IDEs and OS files
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
+.DS_Store
+Thumbs.db
+ehthumbs.db

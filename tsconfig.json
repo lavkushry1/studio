@@ -18,10 +18,22 @@
         "name": "next"
       }
     ],
+    "baseUrl": ".", // Set base URL to the root
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["src/*"], // Alias for frontend source
+      "@/server/*": ["server/*"] // Alias for backend source (if needed in frontend, though unlikely)
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts", // Include frontend source files
+    "src/**/*.tsx",
+    ".next/types/**/*.ts"
+    // Exclude server files from the main frontend build check
+  ],
+  "exclude": [
+    "node_modules",
+    "server", // Exclude server directory from this config
+    "dist" // Exclude backend build output
+  ]
 }

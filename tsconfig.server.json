@@ -1,15 +1,29 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.json", // Inherit base settings
   "compilerOptions": {
-    "module": "CommonJS",
-    "outDir": "dist",
-    "noEmit": false,
-    "baseUrl": ".",
+    "module": "CommonJS",         // Backend uses CommonJS modules
+    "outDir": "dist",              // Output directory for compiled backend code
+    "noEmit": false,             // We need to emit JS files for the backend
+    "baseUrl": ".",                // Base URL remains the root
     "paths": {
-      "@/lib/*": ["src/lib/*"],
-      "@/server/*": ["server/*"]
+      "@/lib/*": ["src/lib/*"],    // Alias for shared lib (used by services)
+      "@/server/*": ["server/*"]   // Alias for server code itself
     }
+    // Remove frontend specific settings if inherited and causing issues
+    // "jsx": "preserve", // Not needed for backend
+    // "plugins": [ ... ] // Next.js plugin not needed
   },
-  "include": ["server/**/*.ts", "prisma/**/*.ts", "src/lib/prisma.ts"],
-  "exclude": ["node_modules", "src", ".next", "dist"]
+  "include": [
+    "server/**/*.ts",         // Include all TS files in the server directory
+    "src/lib/prisma.ts",      // Include prisma client setup (needed by services)
+    "prisma/**/*.ts"          // Include prisma related files if any
+  ],
+  "exclude": [
+    "node_modules",
+    "src/app",                // Exclude frontend app directory
+    "src/components",         // Exclude frontend components
+    "src/hooks",              // Exclude frontend hooks
+    ".next",                  // Exclude Next.js build cache
+    "dist"                    // Exclude the output directory itself
+  ]
 }
