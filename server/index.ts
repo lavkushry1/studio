@@ -20,6 +20,7 @@ import authRoutes from './routes/auth'; // Import auth routes
 import eventRoutes from './routes/events'; // Import event routes
 import bookingRoutes from './routes/bookings'; // Import booking routes
 import adminRoutes from './routes/admin'; // Import admin routes
+import ticketRoutes from './routes/tickets'; // Import ticket routes
 
 // Import services for background jobs
 import * as seatService from './services/seat.service';
@@ -87,6 +88,7 @@ app.use('/api/auth', authRoutes); // Mount auth routes
 app.use('/api/events', eventRoutes); // Mount event routes (includes seat routes now)
 app.use('/api/bookings', bookingRoutes); // Mount booking routes
 app.use('/api/admin', adminRoutes); // Mount admin routes
+app.use('/api/tickets', ticketRoutes); // Mount ticket routes
 
 // Centralized Error Handling Middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -104,6 +106,11 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
            if (err.meta?.target === 'UpiSetting_upiId_key') {
                  return res.status(409).json({ message: `Conflict: This UPI ID is already configured.` });
            }
+            // Check if it's the QR Data constraint
+            if (err.meta?.target === 'Ticket_qrData_key') {
+                 console.error("Duplicate QR Data collision detected!"); // Serious issue if this happens
+                 return res.status(500).json({ message: `Internal Error: Ticket identifier conflict.` });
+           }
           return res.status(409).json({ message: `Conflict: A record with the same unique value already exists.`, field: err.meta?.target });
        }
        // P2025: Record to update/delete not found
@@ -114,12 +121,12 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
    }
 
     // Handle custom errors thrown by services
-     if (err.message.includes('not found') || err.message.includes('Invalid') || err.message.includes('Forbidden') || err.message.includes('Cannot') || err.message.includes('Insufficient') || err.message.includes('Failed to') || err.message.includes('already been used')) {
+     if (err.message.includes('not found') || err.message.includes('Invalid') || err.message.includes('Forbidden') || err.message.includes('Cannot') || err.message.includes('Insufficient') || err.message.includes('Failed to') || err.message.includes('already been used') || err.message.includes('already used')) { // Added 'already used'
         let statusCode = 400; // Default bad request
         if (err.message.includes('not found')) statusCode = 404;
         if (err.message.includes('Forbidden')) statusCode = 403;
         if (err.message.includes('Unauthorized')) statusCode = 401;
-        if (err.message.includes('already been used')) statusCode = 409; // Conflict for unique constraint like UTR
+        if (err.message.includes('already been used') || err.message.includes('already used')) statusCode = 409; // Conflict for unique constraint like UTR or Ticket Used
         return res.status(statusCode).json({ message: err.message });
     }
 
@@ -159,6 +166,8 @@ async function startServer() {
       console.log(`Backend server listening on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log('Required ENV VARS: DATABASE_URL, PORT, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET, ACCESS_TOKEN_EXPIRATION, REFRESH_TOKEN_EXPIRATION');
+       console.log('Optional Email ENV VARS: EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASS, EMAIL_FROM');
+       console.log('Optional Security ENV VARS: QR_CODE_SECRET');
       console.log(`Seat Reservation Timeout: ${RESERVATION_TIMEOUT_MINUTES} minutes`);
       console.log(`Booking Timeout: ${BOOKING_TIMEOUT_MINUTES} minutes`);
     });
@@ -195,4 +204,3 @@ startServer();
 
 // Export the app instance for potential testing or extension
 // export default app; // Uncomment if needed
-

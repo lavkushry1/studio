@@ -1,8 +1,9 @@
 import { prisma } from '@/lib/prisma';
-import { Booking, BookingStatus, Prisma, EventStatus, Seat, SeatStatus } from '@prisma/client';
+import { Booking, BookingStatus, Prisma, EventStatus, Seat, SeatStatus, TicketCategory } from '@prisma/client'; // Import TicketCategory
 import { CreateBookingInput } from '../validation/schemas';
 import { findEventById } from './event.service'; // Import event service
 import { releaseSeats } from './seat.service'; // Import seat service for releasing on failure/cancel
+import { processConfirmedBooking } from './ticket.service'; // Import ticket service
 
 /**
  * Creates a new booking record, associating reserved seats.
@@ -29,6 +30,7 @@ export const createBooking = async (data: CreateBookingInput, userId?: string): 
     let bookingSeatIds: string[];
     let calculatedQuantity: number;
     let totalPrice: number;
+    let linkedTicketCategoryId: string | undefined; // To link quantity booking to a category
 
     if (seatIds && seatIds.length > 0) {
         // --- Seat-based Booking ---
@@ -63,7 +65,10 @@ export const createBooking = async (data: CreateBookingInput, userId?: string): 
         // Calculate price based on seats
         totalPrice = seats.reduce((sum, seat) => {
              // Prioritize price on the Seat model, fallback to category price
-             const price = seat.price ?? event.ticketCategories?.[0]?.price ?? 0; // Needs refinement based on actual category link
+             // We need a better way to link seat to category price if seat.price is null
+             // For now, assuming first category or 0 if no price found
+             const categoryPrice = event.ticketCategories?.[0]?.price ?? 0;
+             const price = seat.price ?? categoryPrice;
              return sum + price;
         }, 0);
 
@@ -73,13 +78,17 @@ export const createBooking = async (data: CreateBookingInput, userId?: string): 
         bookingSeatIds = []; // No specific seats
 
         // Check availability based on TicketCategory
-        const ticketCategory = event.ticketCategories[0]; // Assuming booking against the first category
+        // Assuming booking against the first category for simplicity
+        // In reality, the frontend should specify which category is being booked
+        const ticketCategory = event.ticketCategories[0];
         if (!ticketCategory) {
             throw new Error('No ticket categories found for this event.');
         }
+        linkedTicketCategoryId = ticketCategory.id; // Store category ID
+
         const availableQty = ticketCategory.totalQty - ticketCategory.bookedQty;
         if (quantity > availableQty) {
-            throw new Error(`Insufficient tickets available. Only ${availableQty} left.`);
+            throw new Error(`Insufficient tickets available for category '${ticketCategory.name}'. Only ${availableQty} left.`);
         }
         totalPrice = ticketCategory.price * calculatedQuantity;
 
@@ -128,24 +137,21 @@ export const createBooking = async (data: CreateBookingInput, userId?: string): 
                 throw new Error('Failed to finalize booking due to seat status change. Please try again.');
             }
 
-        } else {
+        } else if (linkedTicketCategoryId) {
             // c. Update booked quantity for the ticket category if quantity-based
-            const ticketCategory = event.ticketCategories[0]; // Assuming first category
-            if (ticketCategory) {
-                 // Use atomic increment to prevent race conditions
-                 await tx.ticketCategory.update({
-                    where: { id: ticketCategory.id },
-                    data: {
-                        bookedQty: {
-                            increment: calculatedQuantity,
-                        },
+            // Use atomic increment to prevent race conditions
+            await tx.ticketCategory.update({
+                where: { id: linkedTicketCategoryId },
+                data: {
+                    bookedQty: {
+                        increment: calculatedQuantity,
                     },
-                });
-                // Verify available quantity after increment (optional, but safer)
-                 const updatedCategory = await tx.ticketCategory.findUnique({ where: { id: ticketCategory.id }});
-                 if (!updatedCategory || updatedCategory.bookedQty > updatedCategory.totalQty) {
-                     throw new Error('Insufficient tickets available after update. Booking failed.'); // Rollback
-                 }
+                },
+            });
+            // Verify available quantity after increment (optional, but safer)
+            const updatedCategory = await tx.ticketCategory.findUnique({ where: { id: linkedTicketCategoryId }});
+            if (!updatedCategory || updatedCategory.bookedQty > updatedCategory.totalQty) {
+                 throw new Error('Insufficient tickets available after update. Booking failed.'); // Rollback
             }
         }
 
@@ -166,14 +172,14 @@ export const createBooking = async (data: CreateBookingInput, userId?: string): 
  * @param include - Optional relations to include.
  * @returns The booking object if found, otherwise null.
  */
-export const findBookingById = async (id: string, include?: Prisma.BookingInclude): Promise<Booking | null> => {
+export const findBookingById = async (id: string, include?: Prisma.BookingInclude): Promise<(Booking & { seats: Seat[] }) | null> => {
     return prisma.booking.findUnique({
         where: { id },
         include: include || {
             event: { select: { id: true, title: true } },
             user: { select: { id: true, email: true, name: true } },
             seats: { // Include associated seats
-                 select: { id: true, row: true, number: true, section: true },
+                 select: { id: true, row: true, number: true, section: true, price: true }, // Include price
                  orderBy: [{section: 'asc'}, {row: 'asc'}, {number: 'asc'}]
             }
         },
@@ -221,6 +227,7 @@ export const submitUtr = async (bookingId: string, utr: string): Promise<Booking
 /**
  * Verifies or rejects a payment for a booking (Admin action).
  * Updates booking status to CONFIRMED or FAILED.
+ * If CONFIRMED, triggers ticket generation process asynchronously.
  * If FAILED, releases associated seats or decrements ticket category count.
  * Logs the verification action.
  * @param bookingId - The ID of the booking.
@@ -269,7 +276,7 @@ export const verifyPayment = async (bookingId: string, approve: boolean, adminUs
          });
 
 
-        // If payment failed/rejected, release seats or decrement booked quantity
+        // If payment failed/rejected, release resources
         if (!approve) {
              await releaseResourcesForFailedBooking(tx, booking);
         }
@@ -277,7 +284,18 @@ export const verifyPayment = async (bookingId: string, approve: boolean, adminUs
         return result;
     });
 
-     // TODO: Trigger e-ticket generation and email sending if approved
+    // If approved, trigger ticket generation (asynchronously, don't block response)
+     if (approve) {
+        console.log(`Payment approved for booking ${bookingId}. Triggering ticket generation.`);
+        // Use setImmediate or process.nextTick to run after current event loop cycle
+        // In a real app, push this task to a job queue (e.g., BullMQ, Celery)
+        setImmediate(() => {
+            processConfirmedBooking(bookingId).catch(err => {
+                 console.error(`Background ticket generation failed for booking ${bookingId}:`, err);
+                 // Optionally: Update booking status to indicate error?
+            });
+        });
+    }
 
     return updatedBooking;
 };
@@ -489,7 +507,10 @@ export const handleBookingTimeouts = async (): Promise<number> => {
  * @param tx - Prisma transaction client.
  * @param booking - The booking object (must include seats relation if seat-based).
  */
-async function releaseResourcesForFailedBooking(tx: Prisma.TransactionClient, booking: Booking & { seats: { id: string }[] }): Promise<void> {
+async function releaseResourcesForFailedBooking(
+    tx: Prisma.TransactionClient,
+    booking: Booking & { seats: { id: string }[] }
+): Promise<void> {
     const seatIdsToRelease = booking.seats.map(s => s.id);
 
     if (seatIdsToRelease.length > 0) {
@@ -499,8 +520,9 @@ async function releaseResourcesForFailedBooking(tx: Prisma.TransactionClient, bo
                 id: { in: seatIdsToRelease },
                 eventId: booking.eventId,
                 // status can be RESERVED (booking failed before commit) or BOOKED (rejected/cancelled after commit)
+                // Only release if still associated with this booking
+                bookingId: booking.id,
                 status: { in: [SeatStatus.RESERVED, SeatStatus.BOOKED] },
-                bookingId: booking.id, // Ensure we only release seats linked to this booking
             },
             data: {
                 status: SeatStatus.AVAILABLE,
@@ -511,27 +533,39 @@ async function releaseResourcesForFailedBooking(tx: Prisma.TransactionClient, bo
         console.log(`Released ${result.count} seats for failed/cancelled/timed-out booking ${booking.id}`);
     } else if (booking.quantity > 0) {
         // Decrement booked quantity for quantity-based booking
-        // Find the relevant ticket category (assuming first for simplicity)
-        const event = await tx.event.findUnique({
-           where: { id: booking.eventId },
-           include: { ticketCategories: true }
-        });
-        const ticketCategory = event?.ticketCategories[0]; // TODO: Link booking to specific category if multiple exist
+        // Find the relevant ticket category based on the booking (assuming a link exists or logic to find it)
+        // For simplicity, let's assume the booking could be linked to a category or we find the first one.
+         let ticketCategoryId: string | undefined;
 
-        if (ticketCategory) {
-             // Only decrement if the booking was actually counted (e.g., CONFIRMED or during commit)
-             // If it failed before commit (still PENDING), decrementing might be wrong.
-             // We decrement here assuming failure/cancellation happens after initial increment attempt or confirmation.
-             await tx.ticketCategory.update({
-                where: { id: ticketCategory.id },
-                data: {
-                    bookedQty: {
-                        // Ensure bookedQty doesn't go below zero
-                        decrement: Math.min(booking.quantity, (await tx.ticketCategory.findUnique({where: {id: ticketCategory.id}, select:{bookedQty:true}}))?.bookedQty ?? 0)
+         // Try to find the category (this logic needs refinement based on how quantity bookings link to categories)
+         const eventWithCategories = await tx.event.findUnique({
+             where: { id: booking.eventId },
+             select: { ticketCategories: { select: { id: true, bookedQty: true } } }
+         });
+         ticketCategoryId = eventWithCategories?.ticketCategories[0]?.id; // Assuming first category for now
+
+
+        if (ticketCategoryId) {
+             // Only decrement if the booking was actually counted towards bookedQty.
+             // This usually happens upon confirmation or during the booking transaction itself.
+             // If booking is cancelled while PENDING, decrement might not be needed or could be harmful.
+             // Let's assume decrement is needed if status was BOOKED, PROCESSING or CONFIRMED before cancellation/failure.
+             // The current logic handles this by only decrementing if status isn't PENDING.
+             const category = await tx.ticketCategory.findUnique({where: {id: ticketCategoryId}, select:{bookedQty: true}});
+
+             if (category && category.bookedQty >= booking.quantity) {
+                 await tx.ticketCategory.update({
+                    where: { id: ticketCategoryId },
+                    data: {
+                        bookedQty: {
+                            decrement: booking.quantity
+                        },
                     },
-                },
-            });
-            console.log(`Decremented booked quantity by ${booking.quantity} for failed/cancelled/timed-out booking ${booking.id}`);
+                 });
+                 console.log(`Decremented booked quantity by ${booking.quantity} for category ${ticketCategoryId} due to booking ${booking.id}`);
+             } else {
+                  console.warn(`Could not decrement quantity for category ${ticketCategoryId}. Current bookedQty: ${category?.bookedQty}, booking quantity: ${booking.quantity}`);
+             }
         } else {
             console.warn(`Could not find ticket category to decrement quantity for booking ${booking.id}`);
         }

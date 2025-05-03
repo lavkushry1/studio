@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -13,19 +10,19 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ========== User Model ==========
 model User {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  email     String   @unique
-  password  String
-  name      String?
-  role      UserRole @default(USER)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  organizedEvents Event[]        @relation("OrganizedBy")
-  bookings        Booking[]
-  refreshTokens   RefreshToken[]
-  auditLogs       AuditLog[] // Relation to audit logs created by this user
+  id               String        @id @default(auto()) @map("_id") @db.ObjectId
+  email            String        @unique
+  password         String
+  name             String?
+  role             UserRole      @default(USER)
+  organizedEvents  Event[]       @relation("OrganizedBy") // Events organized by this user
+  bookings         Booking[]     @relation("BookedBy")    // Bookings made by this user
+  refreshTokens    RefreshToken[] // User's refresh tokens
+  auditLogs        AuditLog[]    // Audit logs initiated by this user
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 }
 
 enum UserRole {
@@ -34,43 +31,40 @@ enum UserRole {
   ADMIN
 }
 
+// ========== Refresh Token Model ==========
 model RefreshToken {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  token     String // Stores reference ID, not the actual JWT token
-  expiresAt DateTime
+  token     String   @unique // Store unique identifier (e.g., jti or record ID), not the raw JWT
   userId    String   @db.ObjectId
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade) // Cascade delete tokens if user is deleted
-
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
   createdAt DateTime @default(now())
-
-  @@index([userId])
 }
 
+// ========== Event Model ==========
 model Event {
-  id              String           @id @default(auto()) @map("_id") @db.ObjectId
-  title           String
-  description     String
-  category        String?          // Added category
-  date            DateTime
-  location        String
-  imageUrl        String?
-  status          EventStatus      @default(DRAFT)
-  hasSeatMap      Boolean          @default(false) // Flag for seat map events
-  organizerId     String           @db.ObjectId
-  organizer       User             @relation("OrganizedBy", fields: [organizerId], references: [id])
-  ticketCategories TicketCategory[]
-  seats           Seat[]           // Relation to seats for this event
-  bookings        Booking[]
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
+  id               String        @id @default(auto()) @map("_id") @db.ObjectId
+  title            String
+  description      String
+  category         String?       // Added category field
+  date             DateTime
+  location         String
+  imageUrl         String?
+  status           EventStatus   @default(DRAFT)
+  hasSeatMap       Boolean       @default(false) // Flag to indicate if seat map is used
+  organizerId      String        @db.ObjectId
+  organizer        User          @relation("OrganizedBy", fields: [organizerId], references: [id], onDelete: Restrict) // Prevent organizer deletion if events exist
+  ticketCategories TicketCategory[] // Relation to ticket categories
+  seats            Seat[]        // Relation to seats (for seat-mapped events)
+  bookings         Booking[]     // Relation to bookings for this event
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   @@index([organizerId])
   @@index([date])
   @@index([location])
-  @@index([status])
-  @@index([category]) // Added index for category
-   // Add compound index for text search
-   @@fulltext([title, description, location, category]) // Specify fields to index for text search
+  @@index([category]) // Index category
+  @@fulltext([title, description, location, category]) // Full-text index for search
 }
 
 enum EventStatus {
@@ -79,107 +73,137 @@ enum EventStatus {
   CANCELLED
 }
 
+// ========== Ticket Category Model ==========
 model TicketCategory {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  name      String
-  price     Float
-  totalQty  Int
-  bookedQty Int      @default(0)
-  eventId   String   @db.ObjectId
-  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade) // Cascade delete categories if event is deleted
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  name       String   // e.g., "General Admission", "VIP", "Balcony"
+  price      Float
+  totalQty   Int      // Total available for this category
+  bookedQty  Int      @default(0) // Number currently booked
+  eventId    String   @db.ObjectId
+  event      Event    @relation(fields: [eventId], references: [id], onDelete: Cascade) // Cascade delete categories if event deleted
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([eventId])
 }
 
+// ========== Seat Model ==========
 model Seat {
-  id        String     @id @default(auto()) @map("_id") @db.ObjectId
-  row       String // e.g., "A", "B", "GA1"
-  number    Int // e.g., 1, 2, 101
-  section   String? // e.g., "North Stand", "Block C", "Orchestra"
-  status    SeatStatus @default(AVAILABLE)
-  eventId   String     @db.ObjectId
-  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  bookingId String?    @db.ObjectId // Link to the booking that includes this seat
-  booking   Booking?   @relation(fields: [bookingId], references: [id], onDelete: SetNull) // Set null if booking is deleted
-  reservedAt DateTime? // Timestamp when seat was reserved
-  price     Float?     // Optional price override specific to this seat
+  id         String     @id @default(auto()) @map("_id") @db.ObjectId
+  row        String     // e.g., "A", "GA"
+  number     Int        // e.g., 1, 2, 3
+  section    String?    // e.g., "North Stand", "Block C"
+  status     SeatStatus @default(AVAILABLE)
+  eventId    String     @db.ObjectId
+  event      Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  bookingId  String?    @db.ObjectId // Link to the booking this seat belongs to (if booked)
+  booking    Booking?   @relation(fields: [bookingId], references: [id], onDelete: SetNull) // Don't delete seat if booking deleted
+  ticketId   String?    @unique @db.ObjectId // Link to the specific ticket using this seat
+  ticket     Ticket?    @relation(fields: [ticketId], references: [id], onDelete: SetNull)
+  reservedAt DateTime?  // Timestamp when reservation started (for timeout)
+  price      Float?     // Optional price override specific to this seat
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-
-  @@unique([eventId, section, row, number]) // Ensure unique seat within an event
+  @@unique([eventId, section, row, number]) // Ensure seat uniqueness within an event
   @@index([eventId])
-  @@index([eventId, status])
+  @@index([eventId, status]) // For querying available/reserved seats quickly
   @@index([bookingId])
 }
 
 enum SeatStatus {
   AVAILABLE
-  RESERVED // Temporarily held during checkout
-  BOOKED // Confirmed booking
-  UNAVAILABLE // Blocked by organizer, not for sale
+  RESERVED   // Temporarily held during checkout
+  BOOKED     // Successfully purchased
+  UNAVAILABLE // Not for sale (e.g., blocked, technical issue)
 }
 
+// ========== Booking Model ==========
 model Booking {
   id                String        @id @default(auto()) @map("_id") @db.ObjectId
-  userId            String?       @db.ObjectId // Optional: for anonymous bookings
-  user              User?         @relation(fields: [userId], references: [id], onDelete: SetNull) // Don't delete booking if user deleted
+  userId            String?       @db.ObjectId // Optional: Link to user if logged in
+  user              User?         @relation("BookedBy", fields: [userId], references: [id], onDelete: SetNull)
   eventId           String        @db.ObjectId
-  event             Event         @relation(fields: [eventId], references: [id])
-  quantity          Int // Number of tickets/seats
+  event             Event         @relation(fields: [eventId], references: [id], onDelete: Restrict) // Prevent event deletion if bookings exist
+  quantity          Int           // Total number of tickets/seats in this booking
   totalPrice        Float
   status            BookingStatus @default(PENDING)
-  deliveryName      String? // Name for ticket delivery/pickup
-  deliveryEmail     String? // Email for e-ticket delivery
-  deliveryPhone     String? // Phone for delivery updates
-  utr               String?       @unique // UPI Transaction Reference, unique
-  paymentVerifiedAt DateTime? // Timestamp when admin verified payment
+  deliveryName      String?       // Name for delivery/ticket holder info
+  deliveryEmail     String?       // Email for delivery
+  deliveryPhone     String?       // Phone for delivery
+  utr               String?       @unique // Unique Transaction Reference for UPI payment verification
+  paymentVerifiedAt DateTime?     // Timestamp when payment was verified by admin
+  tickets           Ticket[]      // Relation to the generated tickets
+  seats             Seat[]        // Relation to the specific seats booked (if seat-mapped)
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
-  seats             Seat[] // Relation to specific seats booked (if applicable)
 
   @@index([userId])
   @@index([eventId])
   @@index([status])
-  @@index([createdAt]) // Index for timeout checks
+  @@index([utr])
 }
 
 enum BookingStatus {
-  PENDING // Initial state, awaiting payment/UTR
-  PROCESSING // UTR submitted, awaiting admin verification
-  CONFIRMED // Payment verified, ticket issued
-  CANCELLED // Booking cancelled by user or system (timeout)
-  FAILED // Payment rejected by admin or failed
+  PENDING     // Initial state, awaiting payment or UTR
+  PROCESSING  // UTR submitted, awaiting admin verification
+  CONFIRMED   // Payment verified, tickets should be generated/sent
+  CANCELLED   // Booking cancelled by user or system (timeout)
+  FAILED      // Payment rejected by admin or failed
 }
 
+// ========== Ticket Model ==========
+model Ticket {
+  id           String     @id @default(auto()) @map("_id") @db.ObjectId
+  bookingId    String     @db.ObjectId
+  booking      Booking    @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  eventId      String     @db.ObjectId // Denormalize for easier lookup?
+  eventTitle   String     // Denormalize event title
+  eventDate    DateTime   // Denormalize event date/time
+  seatId       String?    @unique @db.ObjectId // Link to a specific seat (optional, for seat-mapped events)
+  seat         Seat?      // Relation defined in Seat model
+  qrData       String     @unique // Unique data encoded in the QR code (e.g., ticket ID + validation secret)
+  isUsed       Boolean    @default(false) // Flag for ticket validation/entry
+  usedAt       DateTime?  // Timestamp when the ticket was scanned/used
+  generatedAt  DateTime   @default(now())
+  emailedAt    DateTime?  // Timestamp when the ticket email was sent
+
+  @@index([bookingId])
+  @@index([eventId])
+  @@index([seatId])
+  @@index([qrData])
+}
+
+
+// ========== UPI Setting Model ==========
 model UpiSetting {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  upiId     String   @unique // The actual UPI VPA (e.g., business@bank)
+  upiId     String   @unique // The UPI Virtual Payment Address (VPA)
   isActive  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  // updatedByAdminId String? @db.ObjectId // Optional: Track which admin last updated
+  // Optional: Add admin user relation to track who updated
+  // updatedByAdminId String? @db.ObjectId
+  // updatedByAdmin User?   @relation("UpiUpdatedBy", fields: [updatedByAdminId], references: [id])
 
   @@index([isActive])
 }
 
-// New Model for Audit Logging
+// ========== Audit Log Model ==========
 model AuditLog {
-  id            String    @id @default(auto()) @map("_id") @db.ObjectId
-  action        String // e.g., "Payment Approved", "Event Updated", "User Role Changed"
-  entity        String // e.g., "Booking", "Event", "User"
-  entityId      String // ID of the entity affected
-  userId        String // ID of the user performing the action (or "SYSTEM")
-  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull) // Link to user if not system
-  timestamp     DateTime  @default(now())
-  details       String? // More context about the action
-  previousValue Json? // Store previous state as JSON
-  newValue      Json? // Store new state as JSON
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  action        String   // e.g., "Payment Verified", "User Login", "Event Updated"
+  entity        String   // e.g., "Booking", "User", "Event"
+  entityId      String?  // ID of the entity acted upon
+  userId        String?  // ID of the user performing the action (or "SYSTEM")
+  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  timestamp     DateTime @default(now())
+  details       String?  // Additional details about the action
+  previousValue Json?    // Previous state (optional, use JSON type)
+  newValue      Json?    // New state (optional, use JSON type)
 
-  @@index([entity, entityId])
   @@index([userId])
+  @@index([entity, entityId])
   @@index([timestamp])
-  @@index([action])
 }

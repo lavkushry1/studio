@@ -234,6 +234,16 @@ export const GetBookingSchema = z.object({
 });
 export type GetBookingParams = z.infer<typeof GetBookingSchema>['params'];
 
+// Schema for downloading a ticket
+export const DownloadTicketSchema = z.object({
+    params: z.object({
+        bookingId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid booking ID format' }),
+        ticketId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid ticket ID format' }),
+    }),
+});
+export type DownloadTicketParams = z.infer<typeof DownloadTicketSchema>['params'];
+
+
 // Add schemas for listing bookings, filtering, etc. as needed
 
 
@@ -252,3 +262,12 @@ export const UpdateUpiSettingsSchema = z.object({
     }),
 });
 export type UpdateUpiSettingsInput = z.infer<typeof UpdateUpiSettingsSchema>['body'];
+
+// ========== Ticket Validation Schema ==========
+// Schema for the QR code validation endpoint (if implemented)
+export const ValidateTicketSchema = z.object({
+    body: z.object({
+        qrData: z.string().min(1, { message: 'QR data is required' }),
+    }),
+});
+export type ValidateTicketInput = z.infer<typeof ValidateTicketSchema>['body'];

@@ -1,7 +1,7 @@
 import express from 'express';
 import * as bookingController from '../controllers/booking.controller';
 import { validateRequest } from '../middleware/validate.middleware';
-import { CreateBookingSchema, SubmitUtrSchema, VerifyPaymentSchema, GetBookingSchema } from '../validation/schemas';
+import { CreateBookingSchema, SubmitUtrSchema, VerifyPaymentSchema, GetBookingSchema, DownloadTicketSchema } from '../validation/schemas'; // Added DownloadTicketSchema
 import { authenticateToken, requireAdmin } from '../middleware/auth.middleware';
 
 const router = express.Router();
@@ -24,6 +24,10 @@ router.post('/:bookingId/submit-utr', validateRequest(SubmitUtrSchema), bookingC
 // POST /api/bookings/:bookingId/verify-payment - Admin verifies/rejects payment
 // Requires Admin role. Needs validation for params and body.
 router.post('/:bookingId/verify-payment', authenticateToken, requireAdmin, validateRequest(VerifyPaymentSchema), bookingController.verifyPayment);
+
+// GET /api/bookings/:bookingId/tickets/:ticketId/download - Download a specific ticket PDF
+router.get('/:bookingId/tickets/:ticketId/download', authenticateToken, validateRequest(DownloadTicketSchema), bookingController.downloadTicket);
+
 
 // TODO: Add PUT/PATCH endpoint for updating delivery details if needed
 // router.patch('/:bookingId/delivery-details', authenticateToken, validateRequest(UpdateDeliveryDetailsSchema), bookingController.updateDeliveryDetails);
