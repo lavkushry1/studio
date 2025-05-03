@@ -19,7 +19,7 @@ import { prisma } from '@/lib/prisma';
 import authRoutes from './routes/auth'; // Import auth routes
 import eventRoutes from './routes/events'; // Import event routes
 import bookingRoutes from './routes/bookings'; // Import booking routes
-// import adminRoutes from './routes/admin'; // Keep for later
+import adminRoutes from './routes/admin'; // Import admin routes
 
 // Import services for background jobs
 import * as seatService from './services/seat.service';
@@ -86,7 +86,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 app.use('/api/auth', authRoutes); // Mount auth routes
 app.use('/api/events', eventRoutes); // Mount event routes (includes seat routes now)
 app.use('/api/bookings', bookingRoutes); // Mount booking routes
-// app.use('/api/admin', adminRoutes); // Uncomment when ready
+app.use('/api/admin', adminRoutes); // Mount admin routes
 
 // Centralized Error Handling Middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -99,6 +99,10 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
           // Check if it's the UTR constraint
            if (err.meta?.target === 'Booking_utr_key') {
                 return res.status(409).json({ message: `Conflict: This UTR number has already been used.` });
+           }
+            // Check if it's the UPI ID constraint
+           if (err.meta?.target === 'UpiSetting_upiId_key') {
+                 return res.status(409).json({ message: `Conflict: This UPI ID is already configured.` });
            }
           return res.status(409).json({ message: `Conflict: A record with the same unique value already exists.`, field: err.meta?.target });
        }
@@ -191,3 +195,4 @@ startServer();
 
 // Export the app instance for potential testing or extension
 // export default app; // Uncomment if needed
+

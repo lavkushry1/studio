@@ -74,6 +74,10 @@ components:
         description:
           type: string
           example: "An amazing weekend of live music."
+        category: # Added category
+          type: string
+          nullable: true
+          example: "Music"
         date:
           type: string
           format: date-time
@@ -90,6 +94,9 @@ components:
           type: string
           enum: [DRAFT, PUBLISHED, CANCELLED]
           example: PUBLISHED
+        hasSeatMap: # Added hasSeatMap
+          type: boolean
+          example: false
         organizerId:
           type: string
           format: cuid
@@ -138,6 +145,7 @@ components:
         - location
         - status
         - organizerId
+        - hasSeatMap
         - createdAt
         - updatedAt
 
@@ -214,6 +222,11 @@ components:
               type: string
               format: date-time
               nullable: true
+            price: # Added optional price
+              type: number
+              format: float
+              nullable: true
+              example: 55.00
             createdAt:
               type: string
               format: date-time
@@ -246,6 +259,10 @@ components:
                 status:
                   type: string
                   enum: [AVAILABLE, RESERVED, BOOKED, UNAVAILABLE]
+                price: # Include price in map response
+                  type: number
+                  format: float
+                  nullable: true
 
 
     # ========== Booking Schema ==========
@@ -333,6 +350,32 @@ components:
         - createdAt
         - updatedAt
 
+    # ========== UPI Settings Schema ==========
+    UpiSetting:
+      type: object
+      properties:
+        id:
+          type: string
+          format: cuid
+        upiId:
+          type: string
+          example: "yourbusiness@bankupi"
+        isActive:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - upiId
+        - isActive
+        - createdAt
+        - updatedAt
+
+
     # ========== Request Bodies ==========
     RegisterRequest:
       type: object
@@ -401,6 +444,9 @@ components:
         description:
           type: string
           example: "An amazing weekend of live music."
+        category: # Added category
+          type: string
+          example: "Music"
         date:
           type: string
           format: date-time
@@ -416,6 +462,9 @@ components:
           type: string
           enum: [DRAFT, PUBLISHED, CANCELLED]
           example: DRAFT
+        hasSeatMap: # Added hasSeatMap
+          type: boolean
+          example: false
         ticketCategories:
           type: array
           items:
@@ -450,6 +499,8 @@ components:
            type: string
          description:
            type: string
+         category: # Added category
+           type: string
          date:
            type: string
            format: date-time
@@ -462,6 +513,8 @@ components:
          status:
            type: string
            enum: [DRAFT, PUBLISHED, CANCELLED]
+         hasSeatMap: # Added hasSeatMap
+            type: boolean
 
     SeatDefinition:
         type: object
@@ -479,6 +532,11 @@ components:
               type: string
               enum: [AVAILABLE, UNAVAILABLE] # Initial status options
               default: AVAILABLE
+            price: # Added optional price
+              type: number
+              format: float
+              nullable: true
+              example: 55.00
         required:
           - row
           - number
@@ -542,13 +600,16 @@ components:
             deliveryName:
                 type: string
                 example: "Booker Name"
+                description: "Optional, collected during checkout flow if not provided."
             deliveryEmail:
                 type: string
                 format: email
                 example: "booker@example.com"
+                description: "Optional, collected during checkout flow if not provided."
             deliveryPhone:
                 type: string
                 example: "1234567890"
+                description: "Optional, collected during checkout flow if not provided."
         required:
             - eventId
             # Either quantity or seatIds is required logically, enforced by validation schema
@@ -558,8 +619,9 @@ components:
         properties:
             utr:
                 type: string
-                minLength: 12
-                maxLength: 22
+                minLength: 10 # Relaxed min length
+                maxLength: 30 # Relaxed max length
+                pattern: '^[a-zA-Z0-9]+$' # Ensure alphanumeric
                 example: "123456789012"
         required:
             - utr
@@ -573,6 +635,16 @@ components:
                 example: true
         required:
             - approve
+
+    UpdateUpiSettingsRequest:
+      type: object
+      properties:
+        upiId:
+          type: string
+          pattern: '^[a-zA-Z0-9.\-_]+@[a-zA-Z0-9]+$'
+          example: "newbusinessid@bankupi"
+      required:
+        - upiId
 
 
     # ========== Response Bodies ==========
@@ -635,6 +707,21 @@ components:
         required:
             - message
             - reservedSeats
+
+    UpiSettingResponse:
+      $ref: '#/components/schemas/UpiSetting'
+
+    UpdateUpiSettingResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "UPI setting updated successfully"
+        setting:
+          $ref: '#/components/schemas/UpiSetting'
+      required:
+        - message
+        - setting
 
 
   securitySchemes:
@@ -1119,6 +1206,8 @@ paths:
     get:
       summary: Get the seat map for an event
       tags: [Seats, Events]
+      security:
+          - bearerAuth: [] # Required to see RESERVED seats, maybe optional for just AVAILABLE
       parameters:
         - in: path
           name: eventId
@@ -1137,7 +1226,12 @@ paths:
           schema:
             type: string
             enum: [AVAILABLE, RESERVED, BOOKED, UNAVAILABLE]
-          description: Filter seats by status (defaults to AVAILABLE if not specified)
+          description: Filter seats by status
+        - in: query
+          name: showAll # Added for editor use case
+          schema:
+            type: boolean
+          description: If true, returns all seats regardless of status (admin/editor only)
       responses:
         '200':
           description: Seat map data
@@ -1357,7 +1451,7 @@ paths:
                         $ref: '#/components/schemas/CreateBookingRequest'
         responses:
             '201':
-                description: Booking created successfully
+                description: Booking created successfully (Status: PENDING)
                 content:
                     application/json:
                         schema:
@@ -1488,6 +1582,7 @@ paths:
     post:
         summary: Submit UTR number for a booking payment
         tags: [Bookings]
+        # Security: Optional, depends if anonymous users can submit UTR for their booking
         parameters:
             - in: path
               name: bookingId
@@ -1581,10 +1676,94 @@ paths:
                       schema:
                         $ref: '#/components/schemas/ErrorResponse'
 
-# TODO: Add /admin endpoints here
-# /admin/stats
-# /admin/users
-# /admin/settings/upi
+  # Admin UPI Settings
+  /admin/settings/upi:
+    get:
+      summary: Get active UPI payment settings
+      tags: [Admin, Settings]
+      security:
+        - bearerAuth: [] # Requires Admin role
+      responses:
+        '200':
+          description: Active UPI setting details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpiSettingResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (User is not Admin)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No active UPI setting found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update active UPI payment setting
+      tags: [Admin, Settings]
+      security:
+        - bearerAuth: [] # Requires Admin role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUpiSettingsRequest'
+      responses:
+        '200':
+          description: UPI setting updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UpdateUpiSettingResponse'
+        '400':
+          description: Validation Error (Invalid UPI ID format)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Forbidden (User is not Admin)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+           description: Conflict (e.g., trying to set an ID already in use with issue)
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# TODO: Add other /admin endpoints (stats, users, etc.)
 
 tags:
   - name: Auth
@@ -1599,4 +1778,5 @@ tags:
     description: Admin-specific operations
   - name: Organizer
     description: Organizer-specific operations (often overlaps with Admin)
-
+  - name: Settings
+    description: Platform settings management (usually Admin)

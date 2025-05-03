@@ -1,15 +1,18 @@
 import express from 'express';
 import { authenticateToken, requireAdmin } from '../middleware/auth.middleware';
-// Import admin controllers as needed
+import { validateRequest } from '../middleware/validate.middleware';
+import * as adminController from '../controllers/admin.controller'; // Import admin controller
+import { UpdateUpiSettingsSchema } from '../validation/schemas'; // Import UPI settings schema
 
 const router = express.Router();
 
 // Example Admin Route: Get system stats (requires admin role)
 // router.get('/stats', authenticateToken, requireAdmin, adminController.getStats);
 
-// Example Admin Route: Manage UPI settings
-// router.put('/settings/upi', authenticateToken, requireAdmin, validateRequest(UpiSettingsSchema), adminController.updateUpiSettings);
-// router.get('/settings/upi', authenticateToken, requireAdmin, adminController.getUpiSettings);
+// UPI Settings Management Routes
+router.get('/settings/upi', authenticateToken, requireAdmin, adminController.getUpiSettings);
+router.put('/settings/upi', authenticateToken, requireAdmin, validateRequest(UpdateUpiSettingsSchema), adminController.updateUpiSettings);
+
 
 // Placeholder for other admin functionalities
 router.get('/placeholder', authenticateToken, requireAdmin, (req, res) => {

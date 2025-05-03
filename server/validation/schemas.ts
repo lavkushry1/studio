@@ -53,6 +53,7 @@ export const CreateEventSchema = z.object({
     status: z.nativeEnum(EventStatus).optional(), // Defaults to DRAFT in service
     ticketCategories: z.array(TicketCategoryInputSchema)
                       .min(1, { message: 'At least one ticket category is required' }),
+    hasSeatMap: z.boolean().optional().default(false), // Add hasSeatMap flag
   }),
 });
 export type CreateEventInput = z.infer<typeof CreateEventSchema>['body'];
@@ -69,6 +70,7 @@ export const UpdateEventSchema = z.object({
     location: z.string().min(1).optional(),
     imageUrl: z.string().url().optional().nullable(), // Allow removing image by passing null
     status: z.nativeEnum(EventStatus).optional(),
+    hasSeatMap: z.boolean().optional(), // Allow updating hasSeatMap flag
     // Note: Updating ticket categories might need a separate, more complex endpoint/logic
     // to handle additions, deletions, and modifications carefully, especially if bookings exist.
     // For simplicity here, we only allow updating general event details.
@@ -118,6 +120,7 @@ export const SeatDefinitionSchema = z.object({ // Exported for use in updateSeat
     number: z.coerce.number().int().positive({ message: 'Seat number must be a positive integer' }),
     section: z.string().optional().describe('Optional section name (e.g., North Stand)'),
     status: z.nativeEnum(SeatStatus).default(SeatStatus.AVAILABLE).optional().describe('Initial status (usually AVAILABLE or UNAVAILABLE)'),
+    price: z.coerce.number().positive().optional().nullable(), // Optional price override per seat
 });
 export type SeatDefinition = z.infer<typeof SeatDefinitionSchema>;
 
@@ -170,6 +173,7 @@ export const GetSeatMapSchema = z.object({
         // Optional query params for filtering (e.g., section)
         section: z.string().optional(),
         status: z.nativeEnum(SeatStatus).optional(),
+        showAll: z.enum(['true', 'false']).optional().transform(val => val === 'true'), // For editor use
     }).optional(),
 });
 export type GetSeatMapParams = z.infer<typeof GetSeatMapSchema>['params'];
@@ -183,9 +187,9 @@ export const CreateBookingSchema = z.object({
     eventId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid event ID format' }),
     quantity: z.coerce.number().int().positive({ message: 'Quantity must be a positive integer' }).optional(), // Make optional if using seats
     seatIds: z.array(z.string().refine((val) => /^[a-f\d]{24}$/i.test(val))).optional().describe('IDs of the seats being booked'), // Add seatIds
-    deliveryName: z.string().min(1, {message: "Delivery name is required"}).optional(), // Now optional at creation
-    deliveryEmail: z.string().email({message: "Invalid delivery email"}).optional(), // Now optional
-    deliveryPhone: z.string().min(10, {message: "Invalid phone number"}).optional(), // Basic length check, now optional
+    deliveryName: z.string().min(1, {message: "Delivery name is required"}).optional(), // Make optional
+    deliveryEmail: z.string().email({message: "Invalid delivery email"}).optional(), // Make optional
+    deliveryPhone: z.string().min(10, {message: "Invalid phone number"}).optional(), // Basic length check, make optional
   }).refine(data => data.quantity || (data.seatIds && data.seatIds.length > 0), {
       message: "Either quantity or seatIds must be provided",
       path: ["quantity", "seatIds"], // Indicate which fields are involved
@@ -199,7 +203,12 @@ export const SubmitUtrSchema = z.object({
         bookingId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid booking ID format' }),
     }),
     body: z.object({
-        utr: z.string().min(12, {message: 'UTR must be at least 12 characters'}).max(22, {message: 'UTR cannot exceed 22 characters'}),
+        // Basic UTR validation: usually alphanumeric, length varies (often 12, 16, or 22)
+        // Allow slightly broader range for flexibility
+        utr: z.string()
+             .min(10, {message: 'UTR must be at least 10 characters'})
+             .max(30, {message: 'UTR cannot exceed 30 characters'})
+             .regex(/^[a-zA-Z0-9]+$/, { message: 'UTR must be alphanumeric' }),
     }),
 });
 export type SubmitUtrParams = z.infer<typeof SubmitUtrSchema>['params'];
@@ -226,3 +235,20 @@ export const GetBookingSchema = z.object({
 export type GetBookingParams = z.infer<typeof GetBookingSchema>['params'];
 
 // Add schemas for listing bookings, filtering, etc. as needed
+
+
+// ========== UPI Settings Schemas ==========
+
+// Schema for getting UPI settings (No specific params/body needed)
+export const GetUpiSettingsSchema = z.object({});
+
+// Schema for updating UPI settings (Admin action)
+export const UpdateUpiSettingsSchema = z.object({
+    body: z.object({
+        // Basic UPI VPA validation (user@bank or user@domain)
+        upiId: z.string()
+                 .min(3, { message: 'UPI ID must be at least 3 characters' })
+                 .regex(/^[a-zA-Z0-9.\-_]+@[a-zA-Z0-9]+$/, { message: 'Invalid UPI ID format' }),
+    }),
+});
+export type UpdateUpiSettingsInput = z.infer<typeof UpdateUpiSettingsSchema>['body'];
