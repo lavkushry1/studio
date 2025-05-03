@@ -41,6 +41,8 @@ export const createBooking = async (data: CreateBookingInput, userId?: string): 
                 id: { in: seatIds },
                 eventId: eventId,
             },
+             // Include price if stored per seat
+             // include: { price: true } // Example, adjust based on schema
         });
 
         if (seats.length !== seatIds.length) {
@@ -58,16 +60,12 @@ export const createBooking = async (data: CreateBookingInput, userId?: string): 
             throw new Error(`Seats ${unavailableSeats.map(s => `${s.row}${s.number}`).join(', ')} are not currently reserved. Please try selecting again.`);
         }
 
-        // Calculate price based on seats (assuming price is uniform or derivable, needs refinement)
-        // For simplicity, use the first category's price. A real system might store price per seat or category link.
-        const ticketCategory = event.ticketCategories[0]; // Find category relevant to the seats if needed, otherwise use a default/average
-        if (!ticketCategory) {
-             // Fallback or error if no pricing info available
-            throw new Error('No ticket categories found for price calculation.');
-        }
-         // A more robust price calculation would sum the price of each selected seat, potentially fetched with the seat data
-        totalPrice = seats.reduce((sum, seat) => sum + (ticketCategory.price), 0); // Example using first category price for all seats
-
+        // Calculate price based on seats
+        totalPrice = seats.reduce((sum, seat) => {
+             // Prioritize price on the Seat model, fallback to category price
+             const price = seat.price ?? event.ticketCategories?.[0]?.price ?? 0; // Needs refinement based on actual category link
+             return sum + price;
+        }, 0);
 
     } else if (quantity && quantity > 0) {
         // --- Quantity-based Booking (General Admission style) ---
@@ -224,12 +222,14 @@ export const submitUtr = async (bookingId: string, utr: string): Promise<Booking
  * Verifies or rejects a payment for a booking (Admin action).
  * Updates booking status to CONFIRMED or FAILED.
  * If FAILED, releases associated seats or decrements ticket category count.
+ * Logs the verification action.
  * @param bookingId - The ID of the booking.
  * @param approve - Boolean indicating whether to approve (true) or reject (false).
+ * @param adminUserId - The ID of the admin performing the action.
  * @returns The updated booking object.
- * @throws Error if booking not found or not in PROCESSING state.
+ * @throws Error if booking not found or not in PROCESSING/PENDING state.
  */
-export const verifyPayment = async (bookingId: string, approve: boolean): Promise<Booking> => {
+export const verifyPayment = async (bookingId: string, approve: boolean, adminUserId: string): Promise<Booking> => {
     const booking = await findBookingById(bookingId, { seats: { select: { id: true } } }); // Include seats
     if (!booking) {
         throw new Error('Booking not found');
@@ -241,6 +241,7 @@ export const verifyPayment = async (bookingId: string, approve: boolean): Promis
 
     const newStatus = approve ? BookingStatus.CONFIRMED : BookingStatus.FAILED;
     const paymentVerifiedAt = approve ? new Date() : null; // Record verification time only on approval
+    const actionDescription = approve ? 'Payment Approved' : 'Payment Rejected';
 
 
      // Transaction to update booking and potentially release resources on failure
@@ -250,9 +251,23 @@ export const verifyPayment = async (bookingId: string, approve: boolean): Promis
             data: {
                 status: newStatus,
                 paymentVerifiedAt: paymentVerifiedAt,
-                 utr: booking.status === BookingStatus.PENDING && !approve ? 'N/A-FAILED' : booking.utr, // Mark UTR if failed before submission
+                 utr: booking.status === BookingStatus.PENDING && !approve ? 'N/A-REJECTED' : booking.utr, // Mark UTR if rejected before submission
             },
         });
+
+        // Create Audit Log entry
+        await tx.auditLog.create({
+             data: {
+                 action: actionDescription,
+                 entity: 'Booking',
+                 entityId: bookingId,
+                 userId: adminUserId, // ID of the admin performing the action
+                 details: `Admin ${adminUserId} ${actionDescription.toLowerCase()} for booking ${bookingId}. Status changed to ${newStatus}.`,
+                 previousValue: JSON.stringify({ status: booking.status }), // Store previous status
+                 newValue: JSON.stringify({ status: newStatus }), // Store new status
+             },
+         });
+
 
         // If payment failed/rejected, release seats or decrement booked quantity
         if (!approve) {
@@ -270,7 +285,8 @@ export const verifyPayment = async (bookingId: string, approve: boolean): Promis
 
 /**
  * Finds bookings based on criteria (e.g., status, user ID).
- * @param options - Filtering and pagination options.
+ * Supports search query ('q') for Admin views.
+ * @param options - Filtering, search, and pagination options.
  * @returns An array of booking objects.
  */
 export const findBookings = async (options?: {
@@ -278,17 +294,69 @@ export const findBookings = async (options?: {
     orderBy?: Prisma.BookingOrderByWithRelationInput,
     skip?: number,
     take?: number,
-    include?: Prisma.BookingInclude
+    include?: Prisma.BookingInclude,
+    q?: string, // Search query for admin
+    isAdminView?: boolean // Flag to enable search logic
 }): Promise<Booking[]> => {
+    let whereClause: Prisma.BookingWhereInput = options?.where || {};
+
+    // Apply search logic only if isAdminView and q is provided
+    if (options?.isAdminView && options.q) {
+        const searchQuery = options.q;
+        whereClause = {
+            ...whereClause,
+            OR: [
+                { id: { contains: searchQuery, mode: 'insensitive' } },
+                { utr: { contains: searchQuery, mode: 'insensitive' } },
+                { user: { email: { contains: searchQuery, mode: 'insensitive' } } },
+                { deliveryEmail: { contains: searchQuery, mode: 'insensitive' } },
+                { event: { title: { contains: searchQuery, mode: 'insensitive' } } },
+            ],
+        };
+    }
+
+
     return prisma.booking.findMany({
-        ...options,
+        where: whereClause,
          include: options?.include || {
              event: {select: {id: true, title: true}},
-             user: {select: {id: true, email: true}},
+             user: {select: {id: true, email: true, name: true}}, // Include user name
              seats: {select: {id: true, row: true, number: true, section: true}} // Include seats info
          },
         orderBy: options?.orderBy || { createdAt: 'desc' },
+        skip: options?.skip,
+        take: options?.take,
     });
+};
+
+/**
+* Counts bookings based on criteria.
+* Supports search query ('q') for Admin views.
+* @param options - Filtering and search options.
+* @returns The total count of matching bookings.
+*/
+export const countBookings = async (options?: {
+    where?: Prisma.BookingWhereInput,
+    q?: string, // Search query for admin
+    isAdminView?: boolean // Flag to enable search logic
+}): Promise<number> => {
+    let whereClause: Prisma.BookingWhereInput = options?.where || {};
+
+    if (options?.isAdminView && options.q) {
+        const searchQuery = options.q;
+        whereClause = {
+            ...whereClause,
+            OR: [
+                { id: { contains: searchQuery, mode: 'insensitive' } },
+                { utr: { contains: searchQuery, mode: 'insensitive' } },
+                { user: { email: { contains: searchQuery, mode: 'insensitive' } } },
+                { deliveryEmail: { contains: searchQuery, mode: 'insensitive' } },
+                { event: { title: { contains: searchQuery, mode: 'insensitive' } } },
+            ],
+        };
+    }
+
+    return prisma.booking.count({ where: whereClause });
 };
 
 /**
@@ -310,12 +378,14 @@ export const cancelBooking = async (bookingId: string, userId: string): Promise<
         }
 
         // Permission Check: Allow user who made booking or admin to cancel
-        const isAdmin = (await tx.user.findUnique({ where: { id: userId }, select: { role: true } }))?.role === 'ADMIN';
+        const userRequesting = await tx.user.findUnique({ where: { id: userId }, select: { role: true } });
+        const isAdmin = userRequesting?.role === 'ADMIN';
         if (booking.userId !== userId && !isAdmin) {
             throw new Error('Forbidden: You are not authorized to cancel this booking.');
         }
 
         // Status Check: Allow cancellation only if PENDING or PROCESSING? (Depends on policy)
+        // CONFIRMED bookings might require a different refund/cancellation process.
         if (booking.status !== BookingStatus.PENDING && booking.status !== BookingStatus.PROCESSING) {
             throw new Error(`Booking cannot be cancelled with status ${booking.status}.`);
         }
@@ -325,6 +395,19 @@ export const cancelBooking = async (bookingId: string, userId: string): Promise<
             where: { id: bookingId },
             data: { status: BookingStatus.CANCELLED },
         });
+
+         // Log the cancellation action
+         await tx.auditLog.create({
+             data: {
+                 action: 'Booking Cancelled',
+                 entity: 'Booking',
+                 entityId: bookingId,
+                 userId: userId, // User who initiated cancellation
+                 details: `User ${userId} cancelled booking ${bookingId}. Status changed to CANCELLED.`,
+                 previousValue: JSON.stringify({ status: booking.status }),
+                 newValue: JSON.stringify({ status: BookingStatus.CANCELLED }),
+             },
+         });
 
         // Release associated resources
         await releaseResourcesForFailedBooking(tx, booking); // Reuse the resource release logic
@@ -371,6 +454,20 @@ export const handleBookingTimeouts = async (): Promise<number> => {
                 });
                 // Release resources
                 await releaseResourcesForFailedBooking(tx, booking);
+
+                 // Log the timeout cancellation action
+                 await tx.auditLog.create({
+                     data: {
+                         action: 'Booking Timed Out',
+                         entity: 'Booking',
+                         entityId: booking.id,
+                         userId: 'SYSTEM', // Indicate system action
+                         details: `Booking ${booking.id} cancelled due to timeout. Status changed to CANCELLED.`,
+                         previousValue: JSON.stringify({ status: BookingStatus.PENDING }),
+                         newValue: JSON.stringify({ status: BookingStatus.CANCELLED }),
+                     },
+                 });
+
             });
             cancelledCount++;
             console.log(`Booking ${booking.id} cancelled due to timeout.`);
@@ -401,7 +498,8 @@ async function releaseResourcesForFailedBooking(tx: Prisma.TransactionClient, bo
             where: {
                 id: { in: seatIdsToRelease },
                 eventId: booking.eventId,
-                // status: SeatStatus.BOOKED, // Could be BOOKED or RESERVED depending on when failure occurs
+                // status can be RESERVED (booking failed before commit) or BOOKED (rejected/cancelled after commit)
+                status: { in: [SeatStatus.RESERVED, SeatStatus.BOOKED] },
                 bookingId: booking.id, // Ensure we only release seats linked to this booking
             },
             data: {
@@ -410,7 +508,7 @@ async function releaseResourcesForFailedBooking(tx: Prisma.TransactionClient, bo
                 reservedAt: null,
             }
         });
-        console.log(`Released ${result.count} seats for failed/cancelled booking ${booking.id}`);
+        console.log(`Released ${result.count} seats for failed/cancelled/timed-out booking ${booking.id}`);
     } else if (booking.quantity > 0) {
         // Decrement booked quantity for quantity-based booking
         // Find the relevant ticket category (assuming first for simplicity)
@@ -418,20 +516,24 @@ async function releaseResourcesForFailedBooking(tx: Prisma.TransactionClient, bo
            where: { id: booking.eventId },
            include: { ticketCategories: true }
         });
-        const ticketCategory = event?.ticketCategories[0];
+        const ticketCategory = event?.ticketCategories[0]; // TODO: Link booking to specific category if multiple exist
 
         if (ticketCategory) {
+             // Only decrement if the booking was actually counted (e.g., CONFIRMED or during commit)
+             // If it failed before commit (still PENDING), decrementing might be wrong.
+             // We decrement here assuming failure/cancellation happens after initial increment attempt or confirmation.
              await tx.ticketCategory.update({
                 where: { id: ticketCategory.id },
                 data: {
                     bookedQty: {
-                        decrement: booking.quantity,
+                        // Ensure bookedQty doesn't go below zero
+                        decrement: Math.min(booking.quantity, (await tx.ticketCategory.findUnique({where: {id: ticketCategory.id}, select:{bookedQty:true}}))?.bookedQty ?? 0)
                     },
                 },
             });
-            console.log(`Decremented booked quantity by ${booking.quantity} for failed/cancelled booking ${booking.id}`);
+            console.log(`Decremented booked quantity by ${booking.quantity} for failed/cancelled/timed-out booking ${booking.id}`);
         } else {
-            console.warn(`Could not find ticket category to decrement quantity for failed/cancelled booking ${booking.id}`);
+            console.warn(`Could not find ticket category to decrement quantity for booking ${booking.id}`);
         }
     }
 }
@@ -487,6 +589,20 @@ async function handleBookingTimeoutCancellation(bookingId: string) {
             where: { id: bookingId },
             data: { status: BookingStatus.CANCELLED },
         });
+
+         // Log the timeout cancellation action
+         await tx.auditLog.create({
+             data: {
+                 action: 'Booking Timed Out',
+                 entity: 'Booking',
+                 entityId: booking.id,
+                 userId: 'SYSTEM', // Indicate system action
+                 details: `Booking ${booking.id} cancelled due to timeout. Status changed to CANCELLED.`,
+                 previousValue: JSON.stringify({ status: BookingStatus.PENDING }),
+                 newValue: JSON.stringify({ status: BookingStatus.CANCELLED }),
+             },
+         });
+
 
         // Release associated resources
         await releaseResourcesForFailedBooking(tx, booking);
