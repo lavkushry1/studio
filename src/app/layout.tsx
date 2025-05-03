@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Header } from '@/components/layout/Header'; // Import Header
 import { Footer } from '@/components/layout/Footer'; // Import Footer
 import { QueryProvider } from '@/providers/QueryProvider'; // Import QueryProvider
+import { AuthProvider } from '@/hooks/useAuth'; // Import AuthProvider
 
 const geistSans = Geist({
   variable: '--font-geist-sans',
@@ -30,12 +31,14 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning> {/* Add suppressHydrationWarning for potential theme issues */}
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased flex flex-col min-h-screen`}>
         <QueryProvider> {/* Wrap content with QueryProvider */}
-          <Header /> {/* Add Header */}
-          <main className="flex-grow"> {/* Main content area */}
-            {children}
-          </main>
-          <Footer /> {/* Add Footer */}
-          <Toaster /> {/* Add Toaster component */}
+          <AuthProvider> {/* Wrap content with AuthProvider */}
+            <Header /> {/* Add Header */}
+            <main className="flex-grow"> {/* Main content area */}
+              {children}
+            </main>
+            <Footer /> {/* Add Footer */}
+            <Toaster /> {/* Add Toaster component */}
+          </AuthProvider>
         </QueryProvider>
       </body>
     </html>
