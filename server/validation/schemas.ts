@@ -28,6 +28,10 @@ export const RefreshTokenSchema = z.object({
 })
 export type RefreshTokenInput = z.infer<typeof RefreshTokenSchema>['body'];
 
+// Schema for Logout is same as RefreshTokenSchema as it needs the token to invalidate
+export const LogoutSchema = RefreshTokenSchema;
+export type LogoutInput = RefreshTokenInput;
+
 
 // ========== Event Schemas ==========
 

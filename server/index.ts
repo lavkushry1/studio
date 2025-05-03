@@ -14,11 +14,11 @@ dotenv.config({ path: envPath });
 // Use Prisma Client from the shared lib folder
 import { prisma } from '@/lib/prisma';
 
-// Import routes (to be added later)
-// import authRoutes from './routes/auth';
-// import eventRoutes from './routes/events';
-// import bookingRoutes from './routes/bookings';
-// import adminRoutes from './routes/admin';
+// Import routes
+import authRoutes from './routes/auth'; // Import auth routes
+// import eventRoutes from './routes/events'; // Keep for later
+// import bookingRoutes from './routes/bookings'; // Keep for later
+// import adminRoutes from './routes/admin'; // Keep for later
 
 // --- Swagger Setup (Keep existing setup) ---
 import swaggerUi from 'swagger-ui-express';
@@ -71,11 +71,11 @@ app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-// API Routes (to be added later)
-// app.use('/api/auth', authRoutes);
-// app.use('/api/events', eventRoutes);
-// app.use('/api/bookings', bookingRoutes);
-// app.use('/api/admin', adminRoutes);
+// API Routes
+app.use('/api/auth', authRoutes); // Mount auth routes
+// app.use('/api/events', eventRoutes); // Uncomment when ready
+// app.use('/api/bookings', bookingRoutes); // Uncomment when ready
+// app.use('/api/admin', adminRoutes); // Uncomment when ready
 
 // Centralized Error Handling Middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -102,6 +102,7 @@ async function startServer() {
     app.listen(port, () => {
       console.log(`Backend server listening on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log('Required ENV VARS: DATABASE_URL, PORT, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET, ACCESS_TOKEN_EXPIRATION, REFRESH_TOKEN_EXPIRATION');
     });
   } catch (error) {
     console.error('Failed to connect to the database:', error);

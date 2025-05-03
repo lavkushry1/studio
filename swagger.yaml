@@ -655,7 +655,9 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EventsListResponse'
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
         '500':
           description: Internal Server Error
           content:
@@ -680,7 +682,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EventResponse'
+                $ref: '#/components/schemas/Event'
         '400':
           description: Validation Error
           content:
@@ -724,7 +726,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EventResponse'
+                $ref: '#/components/schemas/Event'
         '400':
            description: Invalid event ID format
            content:
@@ -769,7 +771,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EventResponse'
+                $ref: '#/components/schemas/Event'
         '400':
           description: Validation Error or Invalid event ID format
           content:

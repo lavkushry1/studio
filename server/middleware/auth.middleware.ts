@@ -61,3 +61,6 @@ export const authorizeRole = (allowedRoles: UserRole[]) => {
  * Convenience middleware to specifically require ADMIN role.
  */
 export const requireAdmin = authorizeRole([UserRole.ADMIN]);
+
+// Add requireOrganizer if needed later
+// export const requireOrganizer = authorizeRole([UserRole.ORGANIZER, UserRole.ADMIN]); // Admins can also organize

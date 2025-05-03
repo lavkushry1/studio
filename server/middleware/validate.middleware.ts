@@ -6,28 +6,20 @@ import { AnyZodObject, ZodError } from 'zod';
  * @param schema - The Zod schema object containing optional body, params, query schemas.
  * @returns Express middleware function.
  */
-export const validateRequest = (schema: AnyZodObject | { body?: AnyZodObject, params?: AnyZodObject, query?: AnyZodObject }) =>
+export const validateRequest = (schema: { body?: AnyZodObject, params?: AnyZodObject, query?: AnyZodObject }) =>
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      if ('parse' in schema && typeof schema.parse === 'function') {
-        // Handle single schema object directly (e.g., for simpler cases)
-         await schema.parseAsync({
-            body: req.body,
-            query: req.query,
-            params: req.params,
-         });
-
-      } else {
-         // Handle object with optional body, params, query schemas
-          if (schema.params) {
-            req.params = await schema.params.parseAsync(req.params);
-          }
-          if (schema.body) {
-            req.body = await schema.body.parseAsync(req.body);
-          }
-          if (schema.query) {
-            req.query = await schema.query.parseAsync(req.query);
-          }
+      // Validate params if schema exists
+      if (schema.params) {
+        req.params = await schema.params.parseAsync(req.params);
+      }
+      // Validate body if schema exists
+      if (schema.body) {
+        req.body = await schema.body.parseAsync(req.body);
+      }
+      // Validate query if schema exists
+      if (schema.query) {
+        req.query = await schema.query.parseAsync(req.query);
       }
       return next();
     } catch (error) {

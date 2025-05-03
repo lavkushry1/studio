@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import * as userService from '../services/user.service';
 import * as authService from '../services/auth.service';
-import { RegisterInput, LoginInput, RefreshTokenInput } from '../validation/schemas';
+import { RegisterInput, LoginInput, RefreshTokenInput, LogoutInput } from '../validation/schemas';
 
 /**
  * Handles user registration.
@@ -72,21 +72,14 @@ export const refreshToken = async (req: Request<object, object, RefreshTokenInpu
         const { refreshToken } = req.body;
         const newAccessToken = await authService.refreshAccessToken(refreshToken);
 
-        if (!newAccessToken) {
-            // This case might be handled by errors thrown within refreshAccessToken
-            return res.status(401).json({ message: 'Invalid or expired refresh token' });
-        }
-
+        // refreshAccessToken throws errors which are caught below, so no need to check !newAccessToken here.
         res.status(200).json({ accessToken: newAccessToken });
 
     } catch (error: any) {
          console.error('Token refresh error:', error);
          // Send specific error messages based on the caught error
-         if (error.message === 'Invalid refresh token' || error.message === 'Refresh token not found or mismatch') {
+         if (error.message === 'Invalid refresh token' || error.message === 'Refresh token not found or mismatch' || error.message === 'Refresh token expired') {
              return res.status(401).json({ message: error.message });
-         }
-         if (error.message === 'Refresh token expired') {
-            return res.status(401).json({ message: error.message });
          }
         res.status(500).json({ message: 'Internal Server Error' });
     }
@@ -96,14 +89,13 @@ export const refreshToken = async (req: Request<object, object, RefreshTokenInpu
 /**
  * Handles user logout by invalidating the refresh token.
  * POST /api/auth/logout
- * Requires authentication to identify the token to invalidate.
  */
-export const logout = async (req: Request<object, object, RefreshTokenInput>, res: Response) => {
+export const logout = async (req: Request<object, object, LogoutInput>, res: Response) => {
      try {
         const { refreshToken } = req.body; // Client needs to send the refresh token to invalidate
 
         // 1. Verify the refresh token to get its payload (including tokenId)
-        const decodedPayload = authService.verifyRefreshToken(refreshToken);
+        const decodedPayload = verifyRefreshToken(refreshToken);
         if (!decodedPayload || !decodedPayload.tokenId) {
             return res.status(400).json({ message: 'Invalid refresh token provided' });
         }
@@ -130,12 +122,15 @@ export const logout = async (req: Request<object, object, RefreshTokenInput>, re
  */
 export const getMe = async (req: Request, res: Response) => {
     if (!req.user) {
+        // This should be caught by authenticateToken middleware, but double-check
         return res.status(401).json({ message: 'Not authenticated' });
     }
 
     try {
+        // User ID and role are already attached to req.user by the middleware
         const user = await userService.findUserById(req.user.userId);
         if (!user) {
+            // Should not happen if token is valid, but good practice
             return res.status(404).json({ message: 'User not found' });
         }
         // Exclude password

@@ -6,110 +6,69 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite" // Using SQLite for simplicity, change if needed
-  url      = "file:./dev.db"
+  provider = "postgresql" // Or your chosen provider (mysql, mongodb, etc.)
+  url      = env("DATABASE_URL")
 }
 
+// ========== User Model ==========
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
+  password  String
   name      String?
-  password  String   // Hashed password
   role      UserRole @default(USER)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  bookings       Booking[]
-  refreshTokens  RefreshToken[]
-  eventsOrganized Event[]        @relation("OrganizedBy") // Events organized by this user
+  // Relations
+  organizedEvents Event[]        @relation("OrganizerEvents")
+  bookings        Booking[]      @relation("UserBookings")
+  refreshTokens   RefreshToken[] @relation("UserRefreshTokens") // Relation to refresh tokens
 
   @@map("users")
 }
 
-model Event {
-  id          String   @id @default(cuid())
-  title       String
-  description String
-  date        DateTime
-  location    String
-  imageUrl    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  status      EventStatus @default(DRAFT)
-
-  organizerId String // Foreign key to User
-  organizer   User   @relation("OrganizedBy", fields: [organizerId], references: [id])
-
-  ticketCategories TicketCategory[]
-  bookings         Booking[]
-
-  @@map("events")
-}
-
-model TicketCategory {
-  id        String   @id @default(cuid())
-  name      String
-  price     Float
-  totalQty  Int
-  bookedQty Int      @default(0)
-  eventId   String   // Foreign key to Event
-  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("ticket_categories")
-}
-
-model Booking {
-  id             String        @id @default(cuid())
-  userId         String?       // Allow anonymous bookings initially
-  user           User?         @relation(fields: [userId], references: [id])
-  eventId        String        // Foreign key to Event
-  event          Event         @relation(fields: [eventId], references: [id])
-  // ticketCategoryId String? // If booking specific categories
-  // ticketCategory TicketCategory? @relation(fields: [ticketCategoryId], references: [id])
-  quantity       Int
-  totalPrice     Float
-  status         BookingStatus @default(PENDING)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  deliveryName   String?
-  deliveryEmail  String?
-  deliveryPhone  String?
-  utr            String?       @unique // Unique Transaction Reference for UPI
-  paymentVerifiedAt DateTime?
-
-  // Consider adding seat info relation if seat mapping is implemented later
-
-  @@map("bookings")
-}
-
-model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique // The actual refresh token string (hashed ideally)
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  @@map("refresh_tokens")
-}
-
-model UpiSetting {
-  id        String   @id @default(cuid())
-  vpa       String   // Virtual Payment Address (e.g., eventia@upi)
-  isActive  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Ensure only one setting is active at a time (handled in service layer)
-  @@map("upi_settings")
-}
-
-
 enum UserRole {
   USER
   ADMIN
+  // Add ORGANIZER if needed later
+}
+
+// ========== Refresh Token Model ==========
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String // Storing the ID/reference, not the full JWT
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // Relation to User
+  user User @relation("UserRefreshTokens", fields: [userId], references: [id], onDelete: Cascade) // Cascade delete tokens if user is deleted
+
+  @@unique([userId, token]) // Ensure a user doesn't have duplicate token references
+  @@map("refresh_tokens")
+}
+
+
+// ========== Event Model ==========
+model Event {
+  id            String           @id @default(cuid())
+  title         String
+  description   String
+  date          DateTime
+  location      String
+  imageUrl      String?
+  status        EventStatus      @default(DRAFT)
+  organizerId   String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  // Relations
+  organizer       User             @relation("OrganizerEvents", fields: [organizerId], references: [id])
+  ticketCategories TicketCategory[] @relation("EventCategories")
+  bookings        Booking[]        @relation("EventBookings")
+
+  @@map("events")
 }
 
 enum EventStatus {
@@ -118,10 +77,56 @@ enum EventStatus {
   CANCELLED
 }
 
-enum BookingStatus {
-  PENDING     // Initial state after booking initiated
-  PROCESSING  // UTR submitted, awaiting verification
-  CONFIRMED   // Payment verified, ticket ready
-  CANCELLED   // Booking cancelled (e.g., timeout, failed payment)
-  FAILED      // Payment failed or rejected
+// ========== Ticket Category Model ==========
+model TicketCategory {
+  id        String   @id @default(cuid())
+  name      String
+  price     Float
+  totalQty  Int
+  bookedQty Int      @default(0) // Track booked tickets for availability
+  eventId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relation
+  event Event @relation("EventCategories", fields: [eventId], references: [id], onDelete: Cascade) // Cascade delete categories if event is deleted
+
+  @@map("ticket_categories")
 }
+
+
+// ========== Booking Model ==========
+model Booking {
+  id                String        @id @default(cuid())
+  userId            String?       // Optional: for anonymous bookings
+  eventId           String
+  quantity          Int
+  totalPrice        Float
+  status            BookingStatus @default(PENDING)
+  // Delivery details (consider normalizing if more complex address needed)
+  deliveryName      String?
+  deliveryEmail     String?
+  deliveryPhone     String?
+  // Payment details
+  utr               String?       @unique // Unique Transaction Reference
+  paymentVerifiedAt DateTime?     // Timestamp when admin verified payment
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  // Relations
+  user  User?  @relation("UserBookings", fields: [userId], references: [id], onDelete: SetNull) // Set userId to null if user deleted
+  event Event  @relation("EventBookings", fields: [eventId], references: [id])
+
+  @@map("bookings")
+}
+
+enum BookingStatus {
+  PENDING     // Initial state after creation
+  PROCESSING  // UTR submitted, awaiting admin verification
+  CONFIRMED   // Payment verified, ticket issued (or ready)
+  CANCELLED   // Booking cancelled by user or system
+  FAILED      // Payment verification failed/rejected by admin
+}
+
+
+// Consider adding models for Venues/Stadiums, Teams, Discounts later

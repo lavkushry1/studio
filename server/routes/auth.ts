@@ -1,7 +1,7 @@
 import express from 'express';
 import * as authController from '../controllers/auth.controller';
 import { validateRequest } from '../middleware/validate.middleware';
-import { RegisterSchema, LoginSchema, RefreshTokenSchema } from '../validation/schemas';
+import { RegisterSchema, LoginSchema, RefreshTokenSchema, LogoutSchema } from '../validation/schemas';
 import { authenticateToken } from '../middleware/auth.middleware'; // Import auth middleware
 
 const router = express.Router();
@@ -16,7 +16,7 @@ router.post('/login', validateRequest(LoginSchema), authController.login);
 router.post('/refresh', validateRequest(RefreshTokenSchema), authController.refreshToken);
 
 // POST /api/auth/logout - User Logout (Requires sending refresh token to invalidate)
-router.post('/logout', validateRequest(RefreshTokenSchema), authController.logout); // Doesn't strictly need authenticateToken, but good practice if server stores session info
+router.post('/logout', validateRequest(LogoutSchema), authController.logout);
 
 // GET /api/auth/me - Get current user profile (Requires authentication)
 router.get('/me', authenticateToken, authController.getMe);
