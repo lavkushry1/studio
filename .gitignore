@@ -15,6 +15,7 @@
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
@@ -27,24 +28,36 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # local env files
-.env*.local
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# Environment files (keep .env.example if you have one)
 .env
+.env.*
+!.env.example
 
-# vercel
-.vercel
+# Prisma
+prisma/dev.db
+prisma/dev.db-journal
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
 
-# Prisma
-prisma/migrations/*.sql
-prisma/dev.db
-prisma/dev.db-journal
+# editor directories and files
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.sublime-workspace
 
-# Genkit state
-.genkit/state/*
-!/.genkit/state/.gitkeep
+#vercel
+.vercel
 
-# Server build output
-dist/
+# Optional: Firebase Emulator Data
+# .firebase/emulators/
+
+# Optional: Output files from code generation
+# src/generated/

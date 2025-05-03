@@ -1,0 +1,1087 @@
+openapi: 3.0.0
+info:
+  title: TicketFlow API
+  version: 1.0.0
+  description: API documentation for the TicketFlow event ticketing platform.
+servers:
+  - url: http://localhost:3001/api # Adjust based on your backend URL
+    description: Development server
+
+components:
+  schemas:
+    # ========== Basic Types ==========
+    ErrorResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Resource not found"
+        errors: # Optional array for validation errors
+          type: array
+          items:
+            type: object
+            properties:
+              path:
+                type: string
+                example: "body.email"
+              message:
+                type: string
+                example: "Invalid email address"
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: cuid
+          example: "clxjq1k2a0000u0pqc9z0h3v7"
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        name:
+          type: string
+          nullable: true
+          example: "John Doe"
+        role:
+          type: string
+          enum: [USER, ADMIN]
+          example: USER
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - email
+        - role
+        - createdAt
+        - updatedAt
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          format: cuid
+        title:
+          type: string
+        description:
+          type: string
+        date:
+          type: string
+          format: date-time
+        location:
+          type: string
+        imageUrl:
+          type: string
+          format: url
+          nullable: true
+        status:
+          type: string
+          enum: [DRAFT, PUBLISHED, CANCELLED]
+        organizerId:
+          type: string
+          format: cuid
+        organizer: # Included from relation
+          type: object
+          properties:
+            id:
+              type: string
+              format: cuid
+            name:
+              type: string
+              nullable: true
+            email:
+              type: string
+              format: email
+        ticketCategories: # Included from relation
+            type: array
+            items:
+              $ref: '#/components/schemas/TicketCategory'
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - title
+        - description
+        - date
+        - location
+        - status
+        - organizerId
+        - createdAt
+        - updatedAt
+
+    TicketCategory:
+      type: object
+      properties:
+        id:
+          type: string
+          format: cuid
+        name:
+          type: string
+        price:
+          type: number
+          format: float
+        totalQty:
+          type: integer
+        bookedQty:
+          type: integer
+        eventId:
+          type: string
+          format: cuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - price
+        - totalQty
+        - bookedQty
+        - eventId
+        - createdAt
+        - updatedAt
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+          format: cuid
+        userId:
+          type: string
+          format: cuid
+          nullable: true
+        eventId:
+          type: string
+          format: cuid
+        quantity:
+          type: integer
+        totalPrice:
+          type: number
+          format: float
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, CONFIRMED, CANCELLED, FAILED]
+        deliveryName:
+          type: string
+          nullable: true
+        deliveryEmail:
+          type: string
+          format: email
+          nullable: true
+        deliveryPhone:
+          type: string
+          nullable: true
+        utr:
+          type: string
+          nullable: true
+        paymentVerifiedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        event: # Included from relation
+          type: object
+          properties:
+            id:
+              type: string
+            title:
+              type: string
+        user: # Included from relation
+          type: object
+          properties:
+             id:
+               type: string
+             email:
+               type: string
+             name:
+               type: string
+               nullable: true
+
+      required:
+        - id
+        - eventId
+        - quantity
+        - totalPrice
+        - status
+        - createdAt
+        - updatedAt
+
+    # ========== Request Bodies ==========
+    RegisterRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "newuser@example.com"
+        password:
+          type: string
+          format: password
+          minLength: 6
+          example: "password123"
+        name:
+          type: string
+          example: "Jane Doe"
+        role:
+          type: string
+          enum: [USER, ADMIN]
+          example: USER
+      required:
+        - email
+        - password
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        password:
+          type: string
+          format: password
+          example: "password123"
+      required:
+        - email
+        - password
+
+    RefreshTokenRequest:
+        type: object
+        properties:
+            refreshToken:
+                type: string
+                example: "eyJhbGciOiJIUz..."
+        required:
+            - refreshToken
+
+    LogoutRequest:
+        type: object
+        properties:
+            refreshToken:
+                type: string
+                description: The refresh token to invalidate.
+                example: "eyJhbGciOiJIUz..."
+        required:
+            - refreshToken
+
+
+    CreateEventRequest:
+      type: object
+      properties:
+        title:
+          type: string
+          example: "Summer Music Festival"
+        description:
+          type: string
+          example: "An amazing weekend of live music."
+        date:
+          type: string
+          format: date-time
+          example: "2024-08-15T18:00:00.000Z"
+        location:
+          type: string
+          example: "City Park Amphitheater"
+        imageUrl:
+          type: string
+          format: url
+          example: "https://example.com/image.jpg"
+        status:
+          type: string
+          enum: [DRAFT, PUBLISHED, CANCELLED]
+          example: DRAFT
+        ticketCategories:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "General Admission"
+              price:
+                type: number
+                format: float
+                example: 50.00
+              totalQty:
+                type: integer
+                example: 1000
+            required:
+             - name
+             - price
+             - totalQty
+          minItems: 1
+      required:
+        - title
+        - description
+        - date
+        - location
+        - ticketCategories
+
+    UpdateEventRequest:
+       type: object
+       properties:
+         title:
+           type: string
+         description:
+           type: string
+         date:
+           type: string
+           format: date-time
+         location:
+           type: string
+         imageUrl:
+           type: string
+           format: url
+           nullable: true
+         status:
+           type: string
+           enum: [DRAFT, PUBLISHED, CANCELLED]
+
+    CreateBookingRequest:
+        type: object
+        properties:
+            eventId:
+                type: string
+                format: cuid
+                example: "clxjq1k2a0000u0pqc9z0h3v7"
+            quantity:
+                type: integer
+                minimum: 1
+                example: 2
+            deliveryName:
+                type: string
+                example: "Booker Name"
+            deliveryEmail:
+                type: string
+                format: email
+                example: "booker@example.com"
+            deliveryPhone:
+                type: string
+                example: "1234567890"
+        required:
+            - eventId
+            - quantity
+            # Make delivery fields optional if collected later
+            #- deliveryName
+            #- deliveryEmail
+            #- deliveryPhone
+
+    SubmitUtrRequest:
+        type: object
+        properties:
+            utr:
+                type: string
+                minLength: 12
+                maxLength: 22
+                example: "123456789012"
+        required:
+            - utr
+
+    VerifyPaymentRequest:
+        type: object
+        properties:
+            approve:
+                type: boolean
+                description: true to approve, false to reject payment
+                example: true
+        required:
+            - approve
+
+
+    # ========== Response Bodies ==========
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        accessToken:
+          type: string
+          example: "eyJhbGciOiJIUz..."
+        refreshToken:
+          type: string
+          example: "eyJhbGciOiJIUz..."
+      required:
+        - user
+        - accessToken
+        - refreshToken
+
+    RefreshTokenResponse:
+        type: object
+        properties:
+            accessToken:
+                type: string
+                example: "eyJhbGciOiJIUz..."
+        required:
+            - accessToken
+
+    GetMeResponse:
+      $ref: '#/components/schemas/User'
+
+    EventResponse:
+        $ref: '#/components/schemas/Event'
+
+    EventsListResponse:
+        type: array
+        items:
+            $ref: '#/components/schemas/Event'
+
+    BookingResponse:
+        $ref: '#/components/schemas/Booking'
+
+    BookingsListResponse:
+        type: array
+        items:
+            $ref: '#/components/schemas/Booking'
+
+  securitySchemes:
+      bearerAuth:
+          type: http
+          scheme: bearer
+          bearerFormat: JWT
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User registered successfully (optionally includes tokens)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse' # Or just User schema if no auto-login
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/login:
+    post:
+      summary: Log in a user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+        summary: Refresh access token
+        tags: [Auth]
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema:
+                        $ref: '#/components/schemas/RefreshTokenRequest'
+        responses:
+            '200':
+                description: Access token refreshed successfully
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/RefreshTokenResponse'
+            '400':
+                description: Validation error (missing token)
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '401':
+                description: Invalid or expired refresh token
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '500':
+                description: Internal Server Error
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    post:
+        summary: Log out user (invalidate refresh token)
+        tags: [Auth]
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema:
+                        $ref: '#/components/schemas/LogoutRequest'
+        responses:
+            '200':
+                description: Logout successful
+                content:
+                  application/json:
+                    schema:
+                      type: object
+                      properties:
+                        message:
+                          type: string
+                          example: "Logout successful"
+            '400':
+                description: Invalid refresh token provided
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '500':
+                description: Logout failed (Internal Server Error)
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/me:
+    get:
+        summary: Get current authenticated user profile
+        tags: [Auth]
+        security:
+            - bearerAuth: []
+        responses:
+            '200':
+                description: User profile retrieved successfully
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/GetMeResponse'
+            '401':
+                description: Not authenticated
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '403':
+                 description: Invalid or expired token
+                 content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '404':
+                description: User not found
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '500':
+                description: Internal Server Error
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+
+
+  /events:
+    get:
+      summary: Retrieve a list of events
+      tags: [Events]
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [DRAFT, PUBLISHED, CANCELLED]
+          description: Filter events by status
+        # Add other query params like date range, location, pagination (page, limit)
+      responses:
+        '200':
+          description: A list of events
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsListResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    post:
+      summary: Create a new event
+      tags: [Events]
+      security:
+        - bearerAuth: [] # Requires authentication (Admin/Organizer role check in handler)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateEventRequest'
+      responses:
+        '201':
+          description: Event created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized (Missing token)
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (Invalid token or insufficient role)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /events/{eventId}:
+    get:
+      summary: Retrieve a single event by ID
+      tags: [Events]
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the event to retrieve
+      responses:
+        '200':
+          description: Event details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+           description: Invalid event ID format
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Update an existing event
+      tags: [Events]
+      security:
+        - bearerAuth: [] # Requires authentication (Admin/Organizer role check in handler)
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the event to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateEventRequest'
+      responses:
+        '200':
+          description: Event updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventResponse'
+        '400':
+          description: Validation Error or Invalid event ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized (Missing token)
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (Invalid token, insufficient role, or not organizer)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete an event
+      tags: [Events]
+      security:
+        - bearerAuth: [] # Requires authentication (Admin/Organizer role check in handler)
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the event to delete
+      responses:
+        '204':
+          description: Event deleted successfully (No Content)
+        '400':
+           description: Invalid event ID format
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized (Missing token)
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (Invalid token, insufficient role, or not organizer)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /bookings:
+    post:
+        summary: Create a new booking
+        tags: [Bookings]
+        security:
+            - bearerAuth: [] # Optional depending on whether anonymous bookings are allowed
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema:
+                        $ref: '#/components/schemas/CreateBookingRequest'
+        responses:
+            '201':
+                description: Booking created successfully
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BookingResponse'
+            '400':
+                description: Validation Error or Booking Error (e.g., insufficient tickets, event not found)
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ErrorResponse'
+            '401':
+                description: Unauthorized (If authentication is required)
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '500':
+                description: Internal Server Error
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+
+    get:
+        summary: Retrieve a list of bookings (User's own or all for Admin)
+        tags: [Bookings]
+        security:
+            - bearerAuth: [] # Requires authentication
+        parameters:
+          - in: query
+            name: status
+            schema:
+                type: string
+                enum: [PENDING, PROCESSING, CONFIRMED, CANCELLED, FAILED]
+            description: Filter bookings by status
+          - in: query
+            name: page
+            schema:
+                type: integer
+                default: 1
+            description: Page number for pagination
+          - in: query
+            name: limit
+            schema:
+                type: integer
+                default: 10
+            description: Number of bookings per page
+        responses:
+            '200':
+                description: A list of bookings
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BookingsListResponse'
+            '401':
+                description: Unauthorized
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '500':
+                description: Internal Server Error
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+
+  /bookings/{bookingId}:
+    get:
+        summary: Retrieve a single booking by ID
+        tags: [Bookings]
+        security:
+            - bearerAuth: [] # Requires authentication (User owns or Admin)
+        parameters:
+            - in: path
+              name: bookingId
+              required: true
+              schema:
+                  type: string
+                  format: cuid
+              description: ID of the booking to retrieve
+        responses:
+            '200':
+                description: Booking details
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BookingResponse'
+            '400':
+               description: Invalid booking ID format
+               content:
+                 application/json:
+                    schema:
+                      $ref: '#/components/schemas/ErrorResponse'
+            '401':
+                description: Unauthorized
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '403':
+                description: Forbidden (User does not own booking and is not Admin)
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '404':
+                description: Booking not found
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '500':
+                description: Internal Server Error
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+
+
+  /bookings/{bookingId}/submit-utr:
+    post:
+        summary: Submit UTR number for a booking payment
+        tags: [Bookings]
+        parameters:
+            - in: path
+              name: bookingId
+              required: true
+              schema:
+                  type: string
+                  format: cuid
+              description: ID of the booking to submit UTR for
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema:
+                        $ref: '#/components/schemas/SubmitUtrRequest'
+        responses:
+            '200':
+                description: UTR submitted successfully, booking status updated to PROCESSING
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BookingResponse'
+            '400':
+                description: Validation Error, Booking not found, Invalid booking status, or UTR already used
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ErrorResponse'
+            '500':
+                description: Internal Server Error
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+
+
+  /bookings/{bookingId}/verify-payment:
+    post:
+        summary: Verify or reject a booking payment (Admin only)
+        tags: [Bookings, Admin]
+        security:
+            - bearerAuth: [] # Requires Admin authentication
+        parameters:
+            - in: path
+              name: bookingId
+              required: true
+              schema:
+                  type: string
+                  format: cuid
+              description: ID of the booking to verify/reject
+        requestBody:
+            required: true
+            content:
+                application/json:
+                    schema:
+                        $ref: '#/components/schemas/VerifyPaymentRequest'
+        responses:
+            '200':
+                description: Payment verification action processed successfully
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/BookingResponse'
+            '400':
+                description: Validation Error, Booking not found, or Invalid booking status for verification
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ErrorResponse'
+            '401':
+                description: Unauthorized
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '403':
+                description: Forbidden (User is not Admin)
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+            '500':
+                description: Internal Server Error
+                content:
+                    application/json:
+                      schema:
+                        $ref: '#/components/schemas/ErrorResponse'
+
+# Add paths for /admin routes here if needed
+
+tags:
+  - name: Auth
+    description: Authentication related endpoints
+  - name: Events
+    description: Event management endpoints
+  - name: Bookings
+    description: Booking management endpoints
+  - name: Admin
+    description: Admin-specific operations
