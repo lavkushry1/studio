@@ -11,16 +11,18 @@ import { Label } from "@/components/ui/label";
 import Image from 'next/image';
 import Link from 'next/link';
 import { Badge } from "@/components/ui/badge";
-import { Search, Filter, Loader2, Ticket } from 'lucide-react';
-import { getEvents } from '@/services/eventService';
-import type { Event as EventType } from '@prisma/client'; // Assuming Event type from Prisma
+import { Search, Filter, Loader2, Ticket, Users } from 'lucide-react'; // Added Users for Team filter
+import { getEvents, getTeams } from '@/services/eventService'; // Added getTeams
+import type { Event as EventType, Team } from '@prisma/client'; // Assuming Event type from Prisma
 import { Pagination } from '@/components/ui/pagination'; // Assuming Pagination component exists
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth'; // Added useAuth
 
 // Assuming EventResponse includes necessary fields like ticketCategories, organizer etc.
 interface EventResponse extends EventType {
     ticketCategories: any[]; // Replace 'any' with actual TicketCategory type if available
     organizer: { id: string; name: string | null; email: string };
+    team: Team | null; // Include team
 }
 
 // Simple state management for filters (can be replaced with Zustand or similar)
@@ -28,6 +30,7 @@ interface FilterState {
     q: string;
     category: string;
     location: string;
+    teamId: string; // Added teamId filter
     date: string;
     page: number;
     limit: number;
@@ -37,6 +40,7 @@ const initialFilterState: FilterState = {
     q: '',
     category: '',
     location: '',
+    teamId: '', // Initialize teamId filter
     date: '',
     page: 1,
     limit: 9, // Default items per page
@@ -47,6 +51,7 @@ export default function EventsPage() {
     const pathname = usePathname();
     const searchParams = useSearchParams();
     const { toast } = useToast();
+    const { getAccessToken } = useAuth(); // Get token for fetching teams
 
     // Component state for filters, initialized from URL search params
     const [filters, setFilters] = useState<FilterState>(() => {
@@ -55,10 +60,18 @@ export default function EventsPage() {
             q: params.get('q') || initialFilterState.q,
             category: params.get('category') || initialFilterState.category,
             location: params.get('location') || initialFilterState.location,
+            teamId: params.get('teamId') || initialFilterState.teamId, // Read teamId from URL
             date: params.get('date') || initialFilterState.date,
             page: parseInt(params.get('page') || `${initialFilterState.page}`, 10),
             limit: parseInt(params.get('limit') || `${initialFilterState.limit}`, 10),
         };
+    });
+
+    // Fetch teams for the filter dropdown
+    const { data: teams, isLoading: isLoadingTeams } = useQuery<Team[]>({
+        queryKey: ['teams'],
+        queryFn: () => getTeams(getAccessToken()!), // Assuming getTeams requires token
+        enabled: !!getAccessToken(), // Only fetch if token is available
     });
 
     // Update URL when filters change (debounced for text inputs)
@@ -67,6 +80,7 @@ export default function EventsPage() {
         if (filters.q) params.set('q', filters.q);
         if (filters.category && filters.category !== 'all') params.set('category', filters.category);
         if (filters.location) params.set('location', filters.location);
+        if (filters.teamId && filters.teamId !== 'all') params.set('teamId', filters.teamId); // Add teamId to URL
         if (filters.date) params.set('date', filters.date); // Assuming date is YYYY-MM-DD
         if (filters.page > 1) params.set('page', filters.page.toString());
         if (filters.limit !== initialFilterState.limit) params.set('limit', filters.limit.toString());
@@ -102,6 +116,7 @@ export default function EventsPage() {
             if (filters.q) params.q = filters.q;
             if (filters.category && filters.category !== 'all') params.category = filters.category;
             if (filters.location) params.location = filters.location;
+            if (filters.teamId && filters.teamId !== 'all') params.teamId = filters.teamId; // Add teamId to API call
             // Assuming date format YYYY-MM-DD for startDate filter
             if (filters.date) params.startDate = filters.date;
 
@@ -149,7 +164,7 @@ export default function EventsPage() {
                         <Button variant="ghost" size="sm" onClick={handleResetFilters} className="text-xs text-muted-foreground">Reset Filters</Button>
                     </CardTitle>
                 </CardHeader>
-                <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                <CardContent className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end"> {/* Adjusted grid cols */}
                     <div className="space-y-1.5">
                         <Label htmlFor="search">Search Events</Label>
                         <div className="relative">
@@ -193,6 +208,27 @@ export default function EventsPage() {
                             onChange={(e) => handleFilterChange('location', e.target.value)}
                          />
                     </div>
+                     <div className="space-y-1.5">
+                        <Label htmlFor="team">Team</Label>
+                        <Select
+                            value={filters.teamId}
+                            onValueChange={(value) => handleFilterChange('teamId', value)}
+                            disabled={isLoadingTeams}
+                        >
+                            <SelectTrigger id="team" className="bg-background">
+                                <SelectValue placeholder="All Teams" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="all">All Teams</SelectItem>
+                                {isLoadingTeams && <SelectItem value="loading" disabled>Loading...</SelectItem>}
+                                {teams?.map((team) => (
+                                    <SelectItem key={team.id} value={team.id}>
+                                        {team.name} ({team.shortName})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
                     <div className="space-y-1.5">
                         <Label htmlFor="date">Date (On or After)</Label>
                         <Input
@@ -205,11 +241,6 @@ export default function EventsPage() {
                     </div>
                 </CardContent>
                  {/* Optional: Add Apply Filters button if not updating URL on change */}
-                {/* <CardFooter className="pt-4">
-                    <Button onClick={() => { /* Manually trigger fetch or update URL */ }} className="ml-auto bg-accent text-accent-foreground hover:bg-accent/90">
-                         Apply Filters
-                    </Button>
-                 </CardFooter> */}
             </Card>
 
             {/* Event Listing Section */}
@@ -243,7 +274,13 @@ export default function EventsPage() {
                                             <Ticket className="h-16 w-16 text-muted-foreground" />
                                         </div>
                                     )}
-                                    {/* Optional: Add overlay or badge for category/status */}
+                                    {/* Team Logo Badge */}
+                                     {event.team && event.team.logoUrl && (
+                                         <div className="absolute top-2 right-2 bg-background/80 p-1 rounded-full w-8 h-8 flex items-center justify-center shadow backdrop-blur-sm">
+                                            <Image src={event.team.logoUrl} alt={`${event.team.shortName} logo`} width={24} height={24} objectFit="contain" />
+                                         </div>
+                                     )}
+                                     {/* Category Badge */}
                                     {event.category && (
                                         <Badge variant="secondary" className="absolute top-2 left-2">{event.category}</Badge>
                                     )}

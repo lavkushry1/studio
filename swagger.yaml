@@ -117,6 +117,13 @@ components:
             email:
               type: string
               format: email
+        teamId: # Added teamId
+          type: string
+          format: cuid
+          nullable: true
+          example: "clxm5n1o20000u0pqa7b8c9d0"
+        team: # Included from relation
+          $ref: '#/components/schemas/Team'
         ticketCategories: # Included from relation
             type: array
             items:
@@ -294,7 +301,7 @@ components:
           format: float
         status:
           type: string
-          enum: [PENDING, PROCESSING, CONFIRMED, CANCELLED, FAILED]
+          enum: [PENDING, PROCESSING, CONFIRMED, CANCELLED, FAILED, ERROR]
         deliveryName:
           type: string
           nullable: true
@@ -404,7 +411,6 @@ components:
         emailedAt:
           type: string
           format: date-time
-          nullable: true
         # Relations (booking, event, seat) are usually included as needed by endpoints
       required:
         - id
@@ -440,6 +446,87 @@ components:
         - isActive
         - createdAt
         - updatedAt
+
+    # ========== Audit Log Schema ==========
+    AuditLog:
+      type: object
+      properties:
+        id:
+          type: string
+          format: cuid
+        action:
+          type: string
+        entity:
+          type: string
+        entityId:
+          type: string
+        userId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        details:
+          type: string
+          nullable: true
+        previousValue:
+          type: object
+          nullable: true
+        newValue:
+          type: object
+          nullable: true
+      required:
+        - id
+        - action
+        - entity
+        - entityId
+        - userId
+        - timestamp
+
+    # ========== Team Schema ==========
+    Team:
+        type: object
+        properties:
+            id:
+              type: string
+              format: cuid
+              example: "clxm5n1o20000u0pqa7b8c9d0"
+            name:
+              type: string
+              example: "Mumbai Indians"
+            shortName:
+              type: string
+              example: "MI"
+            logoUrl:
+              type: string
+              format: url
+              nullable: true
+              example: "https://example.com/mi_logo.png"
+            primaryColor:
+              type: string
+              pattern: '^#[0-9A-Fa-f]{6}$'
+              nullable: true
+              example: "#004BA0"
+            secondaryColor:
+              type: string
+              pattern: '^#[0-9A-Fa-f]{6}$'
+              nullable: true
+              example: "#D1AB3E"
+            colorAccent:
+              type: string
+              pattern: '^#[0-9A-Fa-f]{6}$'
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+        required:
+          - id
+          - name
+          - shortName
+          - createdAt
+          - updatedAt
 
 
     # ========== Request Bodies ==========
@@ -531,6 +618,12 @@ components:
         hasSeatMap: # Added hasSeatMap
           type: boolean
           example: false
+        teamId: # Added teamId
+          type: string
+          format: cuid
+          nullable: true
+          description: "Optional ID of the associated team"
+          example: "clxm5n1o20000u0pqa7b8c9d0"
         ticketCategories:
           type: array
           items:
@@ -581,6 +674,11 @@ components:
            enum: [DRAFT, PUBLISHED, CANCELLED]
          hasSeatMap: # Added hasSeatMap
             type: boolean
+         teamId: # Added teamId
+            type: string
+            format: cuid
+            nullable: true
+            description: "Optional ID of the associated team. Set null to remove association."
 
     SeatDefinition:
         type: object
@@ -722,6 +820,63 @@ components:
       required:
         - qrData
 
+    CreateTeamRequest:
+        type: object
+        properties:
+            name:
+              type: string
+              example: "Royal Challengers Bangalore"
+            shortName:
+              type: string
+              example: "RCB"
+            logoUrl:
+              type: string
+              format: url
+              nullable: true
+              example: "https://example.com/rcb_logo.png"
+            primaryColor:
+              type: string
+              pattern: '^#[0-9A-Fa-f]{6}$'
+              nullable: true
+              example: "#EB1C24"
+            secondaryColor:
+              type: string
+              pattern: '^#[0-9A-Fa-f]{6}$'
+              nullable: true
+              example: "#000000"
+            colorAccent:
+              type: string
+              pattern: '^#[0-9A-Fa-f]{6}$'
+              nullable: true
+              example: "#F2C75C" # Gold
+        required:
+          - name
+          - shortName
+
+    UpdateTeamRequest:
+        type: object
+        properties:
+            name:
+              type: string
+            shortName:
+              type: string
+            logoUrl:
+              type: string
+              format: url
+              nullable: true
+            primaryColor:
+              type: string
+              pattern: '^#[0-9A-Fa-f]{6}$'
+              nullable: true
+            secondaryColor:
+              type: string
+              pattern: '^#[0-9A-Fa-f]{6}$'
+              nullable: true
+            colorAccent:
+              type: string
+              pattern: '^#[0-9A-Fa-f]{6}$'
+              nullable: true
+
 
     # ========== Response Bodies ==========
     AuthResponse:
@@ -819,6 +974,13 @@ components:
       required:
         - message
 
+    TeamResponse:
+        $ref: '#/components/schemas/Team'
+
+    TeamsListResponse:
+        type: array
+        items:
+            $ref: '#/components/schemas/Team'
 
   securitySchemes:
       bearerAuth:
@@ -1031,6 +1193,12 @@ paths:
           schema:
             type: string
           description: Filter events by location (partial match)
+        - in: query # Added team filter
+          name: teamId
+          schema:
+            type: string
+            format: cuid
+          description: Filter events by associated team ID
         - in: query
           name: startDate
           schema:
@@ -1130,7 +1298,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventResponse'
         '400':
-          description: Validation Error
+          description: Validation Error (e.g., invalid teamId)
           content:
             application/json:
               schema:
@@ -1170,7 +1338,7 @@ paths:
           description: ID of the event to retrieve
       responses:
         '200':
-          description: Event details
+          description: Event details (includes team if associated)
           content:
             application/json:
               schema:
@@ -1221,7 +1389,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventResponse'
         '400':
-          description: Validation Error or Invalid event ID format
+          description: Validation Error, Invalid event ID format, or Invalid teamId
           content:
             application/json:
               schema:
@@ -1587,7 +1755,7 @@ paths:
             name: status
             schema:
                 type: string
-                enum: [PENDING, PROCESSING, CONFIRMED, CANCELLED, FAILED]
+                enum: [PENDING, PROCESSING, CONFIRMED, CANCELLED, FAILED, ERROR]
             description: Filter bookings by status
           - in: query
             name: page
@@ -2020,8 +2188,224 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse' # With status 'ERROR'
 
+  # Team CRUD Endpoints
+  /teams:
+    get:
+      summary: Retrieve a list of all teams
+      tags: [Teams]
+      # No security needed for public list
+      responses:
+        '200':
+          description: A list of teams
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamsListResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Create a new team
+      tags: [Teams, Admin]
+      security:
+        - bearerAuth: [] # Requires Admin role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTeamRequest'
+      responses:
+        '201':
+          description: Team created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamResponse'
+        '400':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (User is not Admin)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '409':
+             description: Conflict (Team name or shortName already exists)
+             content:
+               application/json:
+                 schema:
+                   $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
-# TODO: Add other /admin endpoints (stats, users, etc.)
+  /teams/{teamId}:
+    get:
+      summary: Retrieve a single team by ID
+      tags: [Teams]
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the team to retrieve
+      responses:
+        '200':
+          description: Team details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamResponse'
+        '400':
+           description: Invalid team ID format
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Update an existing team
+      tags: [Teams, Admin]
+      security:
+        - bearerAuth: [] # Requires Admin role
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the team to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTeamRequest'
+      responses:
+        '200':
+          description: Team updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TeamResponse'
+        '400':
+          description: Validation Error or Invalid team ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (User is not Admin)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+             description: Conflict (Updated name or shortName already exists)
+             content:
+               application/json:
+                 schema:
+                   $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete a team
+      tags: [Teams, Admin]
+      security:
+        - bearerAuth: [] # Requires Admin role
+      parameters:
+        - in: path
+          name: teamId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the team to delete
+      responses:
+        '204':
+          description: Team deleted successfully (No Content)
+        '400':
+           description: Invalid team ID format or Cannot delete (e.g., team associated with events)
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (User is not Admin)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Team not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+
+# TODO: Add other /admin endpoints (stats, users, discounts etc.)
 
 tags:
   - name: Auth
@@ -2034,6 +2418,8 @@ tags:
     description: Booking management endpoints
   - name: Tickets # Added Tag
     description: Ticket related endpoints (validation, download)
+  - name: Teams # Added Tag
+    description: Team management endpoints
   - name: Admin
     description: Admin-specific operations
   - name: Organizer

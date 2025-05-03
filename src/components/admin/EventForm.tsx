@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useForm, useFieldArray, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -13,19 +13,20 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"; // Added SelectGroup, SelectLabel
 import { cn } from "@/lib/utils";
-import { CalendarIcon, PlusCircle, Trash2, Loader2, Upload, Image as ImageIcon, Tag } from "lucide-react"; // Added Tag icon
+import { CalendarIcon, PlusCircle, Trash2, Loader2, Upload, Image as ImageIcon, Tag, Users } from "lucide-react"; // Added Users icon for Team
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
-import { createEvent } from '@/services/eventService';
+import { createEvent, getTeams } from '@/services/eventService'; // Added getTeams
 import { useAuth } from '@/hooks/useAuth';
-import { EventStatus } from '@prisma/client'; // Import EventStatus
+import { EventStatus, Team } from '@prisma/client'; // Import EventStatus and Team
 import Image from 'next/image';
+import { useQuery } from '@tanstack/react-query';
 
 interface EventFormProps {
-    initialData?: EventFormValues; // For editing later
+    initialData?: EventFormValues & { teamId?: string | null }; // For editing later, include teamId
 }
 
 export function EventForm({ initialData }: EventFormProps) {
@@ -45,6 +46,7 @@ export function EventForm({ initialData }: EventFormProps) {
             location: '',
             imageUrl: '',
             status: EventStatus.DRAFT, // Default status
+            teamId: null, // Initialize teamId as null
             ticketCategories: [{ name: '', price: 0, totalQty: 0 }], // Start with one empty category
         },
     });
@@ -53,6 +55,14 @@ export function EventForm({ initialData }: EventFormProps) {
         control: form.control,
         name: "ticketCategories",
     });
+
+     // Fetch teams for the dropdown
+    const { data: teams, isLoading: isLoadingTeams } = useQuery<Team[]>({
+        queryKey: ['teams'],
+        queryFn: () => getTeams(getAccessToken()!), // Assuming getTeams requires token
+        enabled: !!getAccessToken(),
+    });
+
 
     // Handle image URL change and preview
     const handleImageUrlChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -98,6 +108,7 @@ export function EventForm({ initialData }: EventFormProps) {
                  date: values.date.toISOString(),
                  // Ensure image URL is empty string if not provided, not null/undefined
                  imageUrl: values.imageUrl || undefined, // Send undefined if empty for optional field
+                 teamId: values.teamId || null, // Ensure teamId is null if empty or 'none'
              };
 
             console.log("Submitting data:", dataToSend);
@@ -231,6 +242,36 @@ export function EventForm({ initialData }: EventFormProps) {
                                 )}
                             />
                         </div>
+                         <FormField
+                            control={form.control}
+                            name="teamId"
+                            render={({ field }) => (
+                                <FormItem>
+                                    <FormLabel>Associated Team (Optional)</FormLabel>
+                                     <Select
+                                         onValueChange={(value) => field.onChange(value === 'none' ? null : value)} // Set null if 'none' selected
+                                         defaultValue={field.value || 'none'} // Default to 'none' if null/undefined
+                                         disabled={isLoading || isLoadingTeams}
+                                    >
+                                        <FormControl>
+                                            <SelectTrigger>
+                                                 <SelectValue placeholder="Select a team (optional)" />
+                                            </SelectTrigger>
+                                        </FormControl>
+                                         <SelectContent>
+                                            <SelectItem value="none">-- No Team --</SelectItem>
+                                            {isLoadingTeams && <SelectItem value="loading" disabled>Loading teams...</SelectItem>}
+                                            {teams?.map((team) => (
+                                                <SelectItem key={team.id} value={team.id}>
+                                                     {team.name} ({team.shortName})
+                                                 </SelectItem>
+                                            ))}
+                                         </SelectContent>
+                                     </Select>
+                                    <FormMessage />
+                                </FormItem>
+                            )}
+                        />
                         <FormField
                             control={form.control}
                             name="imageUrl"

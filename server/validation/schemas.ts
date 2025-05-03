@@ -54,6 +54,7 @@ export const CreateEventSchema = z.object({
     ticketCategories: z.array(TicketCategoryInputSchema)
                       .min(1, { message: 'At least one ticket category is required' }),
     hasSeatMap: z.boolean().optional().default(false), // Add hasSeatMap flag
+    teamId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid team ID format' }).optional().nullable(), // Optional Team ID
   }),
 });
 export type CreateEventInput = z.infer<typeof CreateEventSchema>['body'];
@@ -71,6 +72,7 @@ export const UpdateEventSchema = z.object({
     imageUrl: z.string().url().optional().nullable(), // Allow removing image by passing null
     status: z.nativeEnum(EventStatus).optional(),
     hasSeatMap: z.boolean().optional(), // Allow updating hasSeatMap flag
+    teamId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid team ID format' }).optional().nullable(), // Optional Team ID (allow null to unset)
     // Note: Updating ticket categories might need a separate, more complex endpoint/logic
     // to handle additions, deletions, and modifications carefully, especially if bookings exist.
     // For simplicity here, we only allow updating general event details.
@@ -100,6 +102,7 @@ export const listEventsSchema = z.object({ // Renamed for frontend usage consist
         q: z.string().optional(), // Search query
         category: z.string().optional(), // Filter by category
         location: z.string().optional(), // Filter by location
+        teamId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid team ID format' }).optional(), // Filter by team
         startDate: z.string().datetime().optional(), // Filter by start date
         endDate: z.string().datetime().optional(), // Filter by end date
         status: z.nativeEnum(EventStatus).optional(), // Filter by status
@@ -271,3 +274,46 @@ export const ValidateTicketSchema = z.object({
     }),
 });
 export type ValidateTicketInput = z.infer<typeof ValidateTicketSchema>['body'];
+
+// ========== Team Schemas ==========
+export const CreateTeamSchema = z.object({
+    body: z.object({
+        name: z.string().min(1, { message: 'Team name is required' }),
+        shortName: z.string().min(1, { message: 'Short name/code is required' }),
+        logoUrl: z.string().url({ message: 'Invalid logo URL' }).optional().nullable(),
+        primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, { message: 'Invalid hex color format (e.g., #FFFFFF)' }).optional().nullable(),
+        secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, { message: 'Invalid hex color format (e.g., #FFFFFF)' }).optional().nullable(),
+        colorAccent: z.string().regex(/^#[0-9A-Fa-f]{6}$/, { message: 'Invalid hex color format (e.g., #FFFFFF)' }).optional().nullable(),
+    }),
+});
+export type CreateTeamInput = z.infer<typeof CreateTeamSchema>['body'];
+
+export const UpdateTeamSchema = z.object({
+    params: z.object({
+        teamId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid team ID format' }),
+    }),
+    body: z.object({
+        name: z.string().min(1).optional(),
+        shortName: z.string().min(1).optional(),
+        logoUrl: z.string().url().optional().nullable(),
+        primaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
+        secondaryColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
+        colorAccent: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional().nullable(),
+    }),
+});
+export type UpdateTeamInput = z.infer<typeof UpdateTeamSchema>['body'];
+export type UpdateTeamParams = z.infer<typeof UpdateTeamSchema>['params'];
+
+export const GetTeamSchema = z.object({
+    params: z.object({
+        teamId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid team ID format' }),
+    }),
+});
+export type GetTeamParams = z.infer<typeof GetTeamSchema>['params'];
+
+export const DeleteTeamSchema = z.object({
+    params: z.object({
+        teamId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid team ID format' }),
+    }),
+});
+export type DeleteTeamParams = z.infer<typeof DeleteTeamSchema>['params'];

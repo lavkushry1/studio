@@ -21,6 +21,7 @@ import eventRoutes from './routes/events'; // Import event routes
 import bookingRoutes from './routes/bookings'; // Import booking routes
 import adminRoutes from './routes/admin'; // Import admin routes
 import ticketRoutes from './routes/tickets'; // Import ticket routes
+import teamRoutes from './routes/teams'; // Import team routes
 
 // Import services for background jobs
 import * as seatService from './services/seat.service';
@@ -89,6 +90,7 @@ app.use('/api/events', eventRoutes); // Mount event routes (includes seat routes
 app.use('/api/bookings', bookingRoutes); // Mount booking routes
 app.use('/api/admin', adminRoutes); // Mount admin routes
 app.use('/api/tickets', ticketRoutes); // Mount ticket routes
+app.use('/api/teams', teamRoutes); // Mount team routes
 
 // Centralized Error Handling Middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -111,6 +113,13 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
                  console.error("Duplicate QR Data collision detected!"); // Serious issue if this happens
                  return res.status(500).json({ message: `Internal Error: Ticket identifier conflict.` });
            }
+            // Check for Team unique constraints
+            if (err.meta?.target === 'Team_name_key') {
+                 return res.status(409).json({ message: `Conflict: A team with this name already exists.` });
+            }
+            if (err.meta?.target === 'Team_shortName_key') {
+                 return res.status(409).json({ message: `Conflict: A team with this short name already exists.` });
+            }
           return res.status(409).json({ message: `Conflict: A record with the same unique value already exists.`, field: err.meta?.target });
        }
        // P2025: Record to update/delete not found

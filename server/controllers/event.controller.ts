@@ -16,6 +16,7 @@ export const createEvent = async (req: Request<object, object, CreateEventInput>
   }
   try {
     // Pass user ID and role from authenticated request to the service layer for authorization
+    // Also pass the validated request body which now includes optional teamId
     const event = await eventService.createEvent(req.body, req.user.userId, req.user.role);
     res.status(201).json(event);
   } catch (error: any) {
@@ -35,7 +36,8 @@ export const createEvent = async (req: Request<object, object, CreateEventInput>
  */
 export const getAllEvents = async (req: Request<object, object, object, ListEventsQuery>, res: Response) => {
   const isAdminView = req.user?.role === UserRole.ADMIN; // Check if the viewer is an admin
-  const { q, category, location, startDate, endDate, sortBy, order, page: pageStr, limit: limitStr } = req.query;
+  // Destructure all potential query params including teamId
+  const { q, category, location, teamId, startDate, endDate, sortBy, order, page: pageStr, limit: limitStr } = req.query;
 
   try {
     const options: { where?: Prisma.EventWhereInput, skip?: number, take?: number, orderBy?: Prisma.EventOrderByWithRelationInput } = {};
@@ -69,6 +71,11 @@ export const getAllEvents = async (req: Request<object, object, object, ListEven
     if (category) {
         where.category = { equals: category, mode: 'insensitive' };
     }
+     // Filter by teamId (exact match)
+    if (teamId) {
+        where.teamId = teamId as string;
+    }
+
 
     // Text Search (using 'q' query parameter)
     if (q) {
@@ -80,6 +87,8 @@ export const getAllEvents = async (req: Request<object, object, object, ListEven
             { description: { contains: q, mode: 'insensitive' } },
             { location: { contains: q, mode: 'insensitive' } },
             { category: { contains: q, mode: 'insensitive' } },
+            // Optionally search by team name if 'q' is present? Requires relation join.
+            // { team: { name: { contains: q, mode: 'insensitive' } } } // Example if relation is included
         ];
     }
 
@@ -122,7 +131,8 @@ export const getAllEvents = async (req: Request<object, object, object, ListEven
 export const getEventById = async (req: Request<GetEventParams>, res: Response) => {
   const isAdminView = req.user?.role === UserRole.ADMIN;
   try {
-    const event = await eventService.findEventById(req.params.eventId);
+    // Include team relation when fetching single event
+    const event = await eventService.findEventById(req.params.eventId, { ticketCategories: true, organizer: true, team: true });
     if (!event) {
       return res.status(404).json({ message: 'Event not found' });
     }
@@ -150,6 +160,7 @@ export const updateEvent = async (req: Request<UpdateEventParams, object, Update
   }
   try {
     // Pass user ID and role from authenticated request to the service layer for authorization
+    // Pass validated request body which now includes optional teamId
     const updatedEvent = await eventService.updateEvent(req.params.eventId, req.body, req.user.userId, req.user.role);
     res.status(200).json(updatedEvent);
   } catch (error: any) {

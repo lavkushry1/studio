@@ -1,12 +1,13 @@
 import request from './api';
 import type { CreateEventInput, UpdateEventInput } from '@/server/validation/schemas'; // Use backend schema types
-import type { Event, TicketCategory } from '@prisma/client'; // Use Prisma types if needed for response structure
+import type { Event, TicketCategory, Team } from '@prisma/client'; // Use Prisma types if needed for response structure
 
 // Define response types based on backend responses (align with swagger.yaml)
 // Assuming EventResponse includes ticketCategories and organizer details as defined in swagger
 type EventResponse = Event & {
     ticketCategories: TicketCategory[];
     organizer: { id: string; name: string | null; email: string; };
+    team: Team | null; // Include team relation
 };
 type EventsListResponse = EventResponse[];
 
@@ -64,6 +65,20 @@ export const deleteEvent = async (eventId: string, token: string): Promise<void>
         method: 'DELETE',
          headers: {
             'Authorization': `Bearer ${token}`, // Keep explicit header
+        },
+    });
+};
+
+// Fetch all teams (e.g., for event creation dropdown)
+// Assuming this endpoint exists and might require admin/organizer auth
+export const getTeams = async (token: string): Promise<Team[]> => {
+    if (!token) {
+        throw new Error('Authentication token is required to fetch teams.');
+    }
+    // Adjust endpoint if it's different, e.g., '/admin/teams'
+    return request<Team[]>('/teams', {
+         headers: {
+            'Authorization': `Bearer ${token}`,
         },
     });
 };
