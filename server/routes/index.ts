@@ -9,6 +9,7 @@ import bookingRoutes from './bookings';
 import adminRoutes from './admin';
 import ticketRoutes from './tickets'; // Import ticket routes
 import teamRoutes from './teams'; // Import team routes
+import venueRoutes from './venues'; // Import venue routes
 
 const router = express.Router();
 
@@ -18,6 +19,7 @@ router.use('/bookings', bookingRoutes);
 router.use('/admin', adminRoutes);
 router.use('/tickets', ticketRoutes); // Mount ticket routes
 router.use('/teams', teamRoutes); // Mount team routes
+router.use('/venues', venueRoutes); // Mount venue routes
 
 // Simple health check
 router.get('/health', (req, res) => {

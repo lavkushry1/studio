@@ -215,10 +215,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Render children regardless of loading state
-  return React.createElement(
-      AuthContext.Provider,
-      { value },
-      children
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
   );
 }
 
@@ -229,4 +229,3 @@ export function useAuth() {
   }
   return context;
 }
-

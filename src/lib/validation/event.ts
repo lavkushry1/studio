@@ -26,6 +26,8 @@ export const eventFormSchema = z.object({
   // Status might be set automatically or selected, making it optional here initially
   status: z.nativeEnum(EventStatus).default(EventStatus.DRAFT).optional(), // Default to DRAFT
   teamId: z.string().nullable().optional(), // Optional team ID, can be string (ObjectId) or null
+  venueId: z.string().nullable().optional(), // Optional venue ID, can be string (ObjectId) or null
+  hasSeatMap: z.boolean().optional().default(false), // Added flag
   ticketCategories: z.array(ticketCategorySchema)
     .min(1, { message: 'At least one ticket category is required.' }),
 });

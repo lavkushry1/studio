@@ -1,13 +1,14 @@
 import request from './api';
 import type { CreateEventInput, UpdateEventInput } from '@/server/validation/schemas'; // Use backend schema types
-import type { Event, TicketCategory, Team } from '@prisma/client'; // Use Prisma types if needed for response structure
+import type { Event, TicketCategory, Team, Venue } from '@prisma/client'; // Use Prisma types
 
 // Define response types based on backend responses (align with swagger.yaml)
-// Assuming EventResponse includes ticketCategories and organizer details as defined in swagger
+// Assuming EventResponse includes ticketCategories, organizer, team, venue details as defined in swagger
 type EventResponse = Event & {
     ticketCategories: TicketCategory[];
     organizer: { id: string; name: string | null; email: string; };
     team: Team | null; // Include team relation
+    venue: Venue | null; // Include venue relation
 };
 type EventsListResponse = EventResponse[];
 
@@ -80,5 +81,20 @@ export const getTeams = async (token: string): Promise<Team[]> => {
          headers: {
             'Authorization': `Bearer ${token}`,
         },
+    });
+};
+
+// Fetch all venues (e.g., for event creation dropdown)
+// Assuming this endpoint exists and might require admin/organizer auth
+export const getVenues = async (token: string): Promise<Venue[]> => {
+    if (!token) {
+        throw new Error('Authentication token is required to fetch venues.');
+    }
+    // Adjust endpoint if it's different, e.g., '/admin/venues'
+    return request<Venue[]>('/venues', {
+         headers: {
+            'Authorization': `Bearer ${token}`,
+        },
+         params: { limit: '500' } // Fetch a larger list for dropdown, adjust as needed
     });
 };

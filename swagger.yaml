@@ -124,6 +124,13 @@ components:
           example: "clxm5n1o20000u0pqa7b8c9d0"
         team: # Included from relation
           $ref: '#/components/schemas/Team'
+        venueId: # Added venueId
+          type: string
+          format: cuid
+          nullable: true
+          example: "clxps8a3d0001u0pqa4b5c6d7"
+        venue: # Included from relation
+          $ref: '#/components/schemas/Venue'
         ticketCategories: # Included from relation
             type: array
             items:
@@ -230,6 +237,10 @@ components:
               format: cuid
               nullable: true
             ticketId: # Added link to Ticket
+              type: string
+              format: cuid
+              nullable: true
+            ticketCategoryId: # Added link to TicketCategory
               type: string
               format: cuid
               nullable: true
@@ -528,6 +539,58 @@ components:
           - createdAt
           - updatedAt
 
+    # ========== Venue Schema ==========
+    Venue:
+      type: object
+      properties:
+        id:
+          type: string
+          format: cuid
+          example: "clxps8a3d0001u0pqa4b5c6d7"
+        name:
+          type: string
+          example: "Wankhede Stadium"
+        location:
+          type: string
+          example: "Mumbai, Maharashtra"
+        city:
+          type: string
+          nullable: true
+          example: "Mumbai"
+        country:
+          type: string
+          nullable: true
+          example: "India"
+        capacity:
+          type: integer
+          nullable: true
+          example: 33108
+        imageUrl:
+          type: string
+          format: url
+          nullable: true
+        amenities:
+          type: array
+          items:
+            type: string
+          example: ["Food Stalls", "Restrooms", "First Aid"]
+        layoutKey:
+          type: string
+          nullable: true
+          description: "Key identifying a predefined layout (e.g., wankhede_2024)"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - name
+        - location
+        - createdAt
+        - updatedAt
+
 
     # ========== Request Bodies ==========
     RegisterRequest:
@@ -624,6 +687,12 @@ components:
           nullable: true
           description: "Optional ID of the associated team"
           example: "clxm5n1o20000u0pqa7b8c9d0"
+        venueId: # Added venueId
+          type: string
+          format: cuid
+          nullable: true
+          description: "Optional ID of the associated venue"
+          example: "clxps8a3d0001u0pqa4b5c6d7"
         ticketCategories:
           type: array
           items:
@@ -679,6 +748,12 @@ components:
             format: cuid
             nullable: true
             description: "Optional ID of the associated team. Set null to remove association."
+         venueId: # Added venueId
+            type: string
+            format: cuid
+            nullable: true
+            description: "Optional ID of the associated venue. Set null to remove association."
+
 
     SeatDefinition:
         type: object
@@ -701,6 +776,10 @@ components:
               format: float
               nullable: true
               example: 55.00
+            ticketCategoryId: # Added optional category link
+              type: string
+              format: cuid
+              nullable: true
         required:
           - row
           - number
@@ -877,6 +956,72 @@ components:
               pattern: '^#[0-9A-Fa-f]{6}$'
               nullable: true
 
+    CreateVenueRequest:
+        type: object
+        properties:
+            name:
+              type: string
+              example: "Eden Gardens"
+            location:
+              type: string
+              example: "Kolkata, West Bengal"
+            city:
+              type: string
+              nullable: true
+              example: "Kolkata"
+            country:
+              type: string
+              nullable: true
+              example: "India"
+            capacity:
+              type: integer
+              nullable: true
+              example: 68000
+            imageUrl:
+              type: string
+              format: url
+              nullable: true
+            amenities:
+              type: array
+              items:
+                type: string
+              example: ["Floodlights", "Practice Facilities"]
+            layoutKey:
+              type: string
+              nullable: true
+              example: "eden_gardens_default"
+        required:
+          - name
+          - location
+
+    UpdateVenueRequest:
+        type: object
+        properties:
+            name:
+              type: string
+            location:
+              type: string
+            city:
+              type: string
+              nullable: true
+            country:
+              type: string
+              nullable: true
+            capacity:
+              type: integer
+              nullable: true
+            imageUrl:
+              type: string
+              format: url
+              nullable: true
+            amenities:
+              type: array
+              items:
+                type: string
+            layoutKey:
+              type: string
+              nullable: true
+
 
     # ========== Response Bodies ==========
     AuthResponse:
@@ -981,6 +1126,14 @@ components:
         type: array
         items:
             $ref: '#/components/schemas/Team'
+
+    VenueResponse:
+      $ref: '#/components/schemas/Venue'
+
+    VenuesListResponse:
+      type: array
+      items:
+        $ref: '#/components/schemas/Venue'
 
   securitySchemes:
       bearerAuth:
@@ -1199,6 +1352,12 @@ paths:
             type: string
             format: cuid
           description: Filter events by associated team ID
+        - in: query # Added venue filter
+          name: venueId
+          schema:
+            type: string
+            format: cuid
+          description: Filter events by associated venue ID
         - in: query
           name: startDate
           schema:
@@ -1215,7 +1374,7 @@ paths:
           name: q
           schema:
              type: string
-          description: Full-text search query across title, description, location, category
+          description: Full-text search query across title, description, location, category, venue name
         - in: query
           name: sortBy
           schema:
@@ -1298,7 +1457,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventResponse'
         '400':
-          description: Validation Error (e.g., invalid teamId)
+          description: Validation Error (e.g., invalid teamId or venueId)
           content:
             application/json:
               schema:
@@ -1338,7 +1497,7 @@ paths:
           description: ID of the event to retrieve
       responses:
         '200':
-          description: Event details (includes team if associated)
+          description: Event details (includes team and venue if associated)
           content:
             application/json:
               schema:
@@ -1389,7 +1548,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/EventResponse'
         '400':
-          description: Validation Error, Invalid event ID format, or Invalid teamId
+          description: Validation Error, Invalid event ID format, or Invalid teamId/venueId
           content:
             application/json:
               schema:
@@ -2404,6 +2563,256 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  # Venue CRUD Endpoints
+  /venues:
+    get:
+      summary: Retrieve a list of venues
+      tags: [Venues]
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          description: Search query (name, location, city)
+        - in: query
+          name: city
+          schema:
+            type: string
+          description: Filter by city
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+          description: Page number
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+          description: Items per page
+      responses:
+        '200':
+          description: A list of venues
+          headers:
+             X-Total-Count:
+               schema:
+                 type: integer
+             X-Current-Page:
+               schema:
+                 type: integer
+             X-Per-Page:
+               schema:
+                 type: integer
+             X-Total-Pages:
+                schema:
+                  type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VenuesListResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      summary: Create a new venue
+      tags: [Venues, Admin]
+      security:
+        - bearerAuth: [] # Requires Admin role
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVenueRequest'
+      responses:
+        '201':
+          description: Venue created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VenueResponse'
+        '400':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (User is not Admin)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '409':
+             description: Conflict (Venue name already exists)
+             content:
+               application/json:
+                 schema:
+                   $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /venues/{venueId}:
+    get:
+      summary: Retrieve a single venue by ID
+      tags: [Venues]
+      parameters:
+        - in: path
+          name: venueId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the venue to retrieve
+      responses:
+        '200':
+          description: Venue details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VenueResponse'
+        '400':
+           description: Invalid venue ID format
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Venue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Update an existing venue
+      tags: [Venues, Admin]
+      security:
+        - bearerAuth: [] # Requires Admin role
+      parameters:
+        - in: path
+          name: venueId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the venue to update
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateVenueRequest'
+      responses:
+        '200':
+          description: Venue updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VenueResponse'
+        '400':
+          description: Validation Error or Invalid venue ID format
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (User is not Admin)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Venue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+             description: Conflict (Updated name already exists)
+             content:
+               application/json:
+                 schema:
+                   $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete a venue
+      tags: [Venues, Admin]
+      security:
+        - bearerAuth: [] # Requires Admin role
+      parameters:
+        - in: path
+          name: venueId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the venue to delete
+      responses:
+        '204':
+          description: Venue deleted successfully (No Content)
+        '400':
+           description: Invalid venue ID format or Cannot delete (e.g., venue associated with events)
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (User is not Admin)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Venue not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
 # TODO: Add other /admin endpoints (stats, users, discounts etc.)
 
@@ -2420,6 +2829,8 @@ tags:
     description: Ticket related endpoints (validation, download)
   - name: Teams # Added Tag
     description: Team management endpoints
+  - name: Venues # Added Tag
+    description: Venue management endpoints
   - name: Admin
     description: Admin-specific operations
   - name: Organizer

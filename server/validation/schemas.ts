@@ -55,6 +55,7 @@ export const CreateEventSchema = z.object({
                       .min(1, { message: 'At least one ticket category is required' }),
     hasSeatMap: z.boolean().optional().default(false), // Add hasSeatMap flag
     teamId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid team ID format' }).optional().nullable(), // Optional Team ID
+    venueId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid venue ID format' }).optional().nullable(), // Optional Venue ID
   }),
 });
 export type CreateEventInput = z.infer<typeof CreateEventSchema>['body'];
@@ -73,6 +74,7 @@ export const UpdateEventSchema = z.object({
     status: z.nativeEnum(EventStatus).optional(),
     hasSeatMap: z.boolean().optional(), // Allow updating hasSeatMap flag
     teamId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid team ID format' }).optional().nullable(), // Optional Team ID (allow null to unset)
+    venueId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid venue ID format' }).optional().nullable(), // Optional Venue ID (allow null to unset)
     // Note: Updating ticket categories might need a separate, more complex endpoint/logic
     // to handle additions, deletions, and modifications carefully, especially if bookings exist.
     // For simplicity here, we only allow updating general event details.
@@ -103,6 +105,7 @@ export const listEventsSchema = z.object({ // Renamed for frontend usage consist
         category: z.string().optional(), // Filter by category
         location: z.string().optional(), // Filter by location
         teamId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid team ID format' }).optional(), // Filter by team
+        venueId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid venue ID format' }).optional(), // Filter by venue
         startDate: z.string().datetime().optional(), // Filter by start date
         endDate: z.string().datetime().optional(), // Filter by end date
         status: z.nativeEnum(EventStatus).optional(), // Filter by status
@@ -124,6 +127,7 @@ export const SeatDefinitionSchema = z.object({ // Exported for use in updateSeat
     section: z.string().optional().describe('Optional section name (e.g., North Stand)'),
     status: z.nativeEnum(SeatStatus).default(SeatStatus.AVAILABLE).optional().describe('Initial status (usually AVAILABLE or UNAVAILABLE)'),
     price: z.coerce.number().positive().optional().nullable(), // Optional price override per seat
+    ticketCategoryId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid category ID format' }).optional().nullable(), // Link seat to a category
 });
 export type SeatDefinition = z.infer<typeof SeatDefinitionSchema>;
 
@@ -317,3 +321,60 @@ export const DeleteTeamSchema = z.object({
     }),
 });
 export type DeleteTeamParams = z.infer<typeof DeleteTeamSchema>['params'];
+
+// ========== Venue Schemas ==========
+export const CreateVenueSchema = z.object({
+    body: z.object({
+        name: z.string().min(1, { message: 'Venue name is required' }),
+        location: z.string().min(1, { message: 'Location is required' }),
+        city: z.string().optional().nullable(),
+        country: z.string().optional().nullable(),
+        capacity: z.coerce.number().int().positive().optional().nullable(),
+        imageUrl: z.string().url({ message: 'Invalid image URL' }).optional().nullable(),
+        amenities: z.array(z.string()).optional().default([]),
+        layoutKey: z.string().optional().nullable().describe('Key for predefined layout, e.g., wankhede_2024'),
+    }),
+});
+export type CreateVenueInput = z.infer<typeof CreateVenueSchema>['body'];
+
+export const UpdateVenueSchema = z.object({
+    params: z.object({
+        venueId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid venue ID format' }),
+    }),
+    body: z.object({
+        name: z.string().min(1).optional(),
+        location: z.string().min(1).optional(),
+        city: z.string().optional().nullable(),
+        country: z.string().optional().nullable(),
+        capacity: z.coerce.number().int().positive().optional().nullable(),
+        imageUrl: z.string().url().optional().nullable(),
+        amenities: z.array(z.string()).optional(),
+        layoutKey: z.string().optional().nullable(),
+    }),
+});
+export type UpdateVenueInput = z.infer<typeof UpdateVenueSchema>['body'];
+export type UpdateVenueParams = z.infer<typeof UpdateVenueSchema>['params'];
+
+export const GetVenueSchema = z.object({
+    params: z.object({
+        venueId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid venue ID format' }),
+    }),
+});
+export type GetVenueParams = z.infer<typeof GetVenueSchema>['params'];
+
+export const DeleteVenueSchema = z.object({
+    params: z.object({
+        venueId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid venue ID format' }),
+    }),
+});
+export type DeleteVenueParams = z.infer<typeof DeleteVenueSchema>['params'];
+
+export const ListVenuesSchema = z.object({
+    query: z.object({
+        q: z.string().optional(), // Search query
+        city: z.string().optional(), // Filter by city
+        page: z.coerce.number().int().min(1).default(1).optional(), // Pagination page
+        limit: z.coerce.number().int().min(1).max(100).default(10).optional(), // Pagination limit
+    }).optional(),
+});
+export type ListVenuesQuery = z.infer<typeof ListVenuesSchema>['query'];

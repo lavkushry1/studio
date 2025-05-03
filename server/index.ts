@@ -22,6 +22,7 @@ import bookingRoutes from './routes/bookings'; // Import booking routes
 import adminRoutes from './routes/admin'; // Import admin routes
 import ticketRoutes from './routes/tickets'; // Import ticket routes
 import teamRoutes from './routes/teams'; // Import team routes
+import venueRoutes from './routes/venues'; // Import venue routes
 
 // Import services for background jobs
 import * as seatService from './services/seat.service';
@@ -91,6 +92,7 @@ app.use('/api/bookings', bookingRoutes); // Mount booking routes
 app.use('/api/admin', adminRoutes); // Mount admin routes
 app.use('/api/tickets', ticketRoutes); // Mount ticket routes
 app.use('/api/teams', teamRoutes); // Mount team routes
+app.use('/api/venues', venueRoutes); // Mount venue routes
 
 // Centralized Error Handling Middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -120,6 +122,10 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
             if (err.meta?.target === 'Team_shortName_key') {
                  return res.status(409).json({ message: `Conflict: A team with this short name already exists.` });
             }
+             // Check for Venue unique constraints
+             if (err.meta?.target === 'Venue_name_key') {
+                 return res.status(409).json({ message: `Conflict: A venue with this name already exists.` });
+             }
           return res.status(409).json({ message: `Conflict: A record with the same unique value already exists.`, field: err.meta?.target });
        }
        // P2025: Record to update/delete not found

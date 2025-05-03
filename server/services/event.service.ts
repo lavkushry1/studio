@@ -1,27 +1,27 @@
 import { prisma } from '@/lib/prisma';
-import { Event, TicketCategory, Prisma, EventStatus, UserRole, Team } from '@prisma/client'; // Added Team
+import { Event, TicketCategory, Prisma, EventStatus, UserRole, Team, Venue } from '@prisma/client'; // Added Venue
 import { CreateEventInput, UpdateEventInput } from '../validation/schemas';
 
 /**
  * Creates a new event along with its ticket categories.
- * @param data - Event creation data including ticket categories and optional teamId.
+ * @param data - Event creation data including ticket categories, optional teamId, and optional venueId.
  * @param userId - The ID of the user creating the event (organizer or admin).
  * @param userRole - The role of the user creating the event.
- * @returns The newly created event object with categories and optional team.
- * @throws Error if user is not authorized or teamId is invalid.
+ * @returns The newly created event object with categories, optional team, and optional venue.
+ * @throws Error if user is not authorized or teamId/venueId is invalid.
  */
 export const createEvent = async (
     data: CreateEventInput,
     userId: string,
     userRole: string // Assume role comes from authenticated user (req.user.role)
-): Promise<Event & { ticketCategories: TicketCategory[], team: Team | null }> => {
+): Promise<Event & { ticketCategories: TicketCategory[], team: Team | null, venue: Venue | null }> => {
     // Authorization Check: Only Admins or Organizers can create events
     if (userRole !== UserRole.ADMIN && userRole !== UserRole.ORGANIZER) {
         throw new Error('Forbidden: You are not authorized to create events');
     }
 
-    // Destructure including teamId
-    const { ticketCategories, teamId, ...eventData } = data;
+    // Destructure including teamId and venueId
+    const { ticketCategories, teamId, venueId, ...eventData } = data;
 
     // Optional: Validate teamId exists if provided
     if (teamId) {
@@ -31,6 +31,15 @@ export const createEvent = async (
         }
     }
 
+    // Optional: Validate venueId exists if provided
+    if (venueId) {
+        const venueExists = await prisma.venue.findUnique({ where: { id: venueId } });
+        if (!venueExists) {
+            throw new Error('Invalid Venue ID provided.');
+        }
+    }
+
+
     return prisma.event.create({
         data: {
             ...eventData,
@@ -39,6 +48,7 @@ export const createEvent = async (
             status: eventData.status || EventStatus.DRAFT, // Default status if not provided
             category: eventData.category,
             teamId: teamId || null, // Assign teamId or null
+            venueId: venueId || null, // Assign venueId or null
             ticketCategories: {
                 create: ticketCategories.map(category => ({
                     name: category.name,
@@ -51,6 +61,7 @@ export const createEvent = async (
         include: {
             ticketCategories: true, // Include categories in the returned object
             team: true, // Include team details
+            venue: true, // Include venue details
         },
     });
 };
@@ -58,7 +69,7 @@ export const createEvent = async (
 /**
  * Finds all events, optionally with filters, search, and pagination.
  * By default, only returns PUBLISHED events unless specified otherwise (e.g., for admin view).
- * Includes team relation.
+ * Includes team and venue relations.
  * @param options - Filtering, search, and pagination options (optional).
  * @param isAdminView - If true, bypasses the default PUBLISHED status filter.
  * @returns An array of event objects.
@@ -106,8 +117,8 @@ export const findAllEvents = async (options?: {
         orderBy: options?.orderBy || { date: 'asc' }, // Default sort by date
         skip: options?.skip,
         take: options?.take,
-        // Include team by default in list view
-        include: options?.include || { ticketCategories: true, organizer: { select: { id: true, name: true, email: true } }, team: true },
+        // Include team and venue by default in list view
+        include: options?.include || { ticketCategories: true, organizer: { select: { id: true, name: true, email: true } }, team: true, venue: true },
     });
 };
 
@@ -142,23 +153,23 @@ export const countEvents = async (where?: Prisma.EventWhereInput, isAdminView = 
 /**
  * Finds a single event by its ID.
  * Returns event regardless of status (controller might filter based on role).
- * Includes team relation.
+ * Includes team and venue relations.
  * @param id - The ID of the event to find.
  * @param include - Optional relations to include.
  * @returns The event object if found, otherwise null.
  */
-export const findEventById = async (id: string, include?: Prisma.EventInclude): Promise<(Event & { ticketCategories: TicketCategory[], organizer: { id: string, name: string | null, email: string }, team: Team | null }) | null> => {
+export const findEventById = async (id: string, include?: Prisma.EventInclude): Promise<(Event & { ticketCategories: TicketCategory[], organizer: { id: string, name: string | null, email: string }, team: Team | null, venue: Venue | null }) | null> => {
     return prisma.event.findUnique({
         where: { id },
-        // Include categories, organizer, and team details by default
-        include: include || { ticketCategories: true, organizer: { select: { id: true, name: true, email: true } }, team: true },
+        // Include categories, organizer, team, and venue details by default
+        include: include || { ticketCategories: true, organizer: { select: { id: true, name: true, email: true } }, team: true, venue: true },
     });
 };
 
 /**
  * Updates an existing event.
  * @param id - The ID of the event to update.
- * @param data - The data to update the event with (can include teamId).
+ * @param data - The data to update the event with (can include teamId, venueId).
  * @param userId - The ID of the user performing the update.
  * @param userRole - The role of the user performing the update.
  * @returns The updated event object.
@@ -180,7 +191,7 @@ export const updateEvent = async (
         throw new Error('Forbidden: You are not authorized to update this event');
     }
 
-    const { teamId, ...restData } = data;
+    const { teamId, venueId, ...restData } = data;
 
     // Optional: Validate teamId exists if provided
     if (teamId) {
@@ -189,8 +200,17 @@ export const updateEvent = async (
             throw new Error('Invalid Team ID provided.');
         }
     }
-    // Allow setting teamId to null to remove association
+     // Optional: Validate venueId exists if provided
+     if (venueId) {
+        const venueExists = await prisma.venue.findUnique({ where: { id: venueId } });
+        if (!venueExists) {
+            throw new Error('Invalid Venue ID provided.');
+        }
+    }
+
+    // Allow setting IDs to null to remove association
     const teamIdUpdate = teamId === null ? null : (teamId || undefined); // Use undefined if not provided in update
+    const venueIdUpdate = venueId === null ? null : (venueId || undefined); // Use undefined if not provided in update
 
     return prisma.event.update({
         where: { id },
@@ -198,11 +218,12 @@ export const updateEvent = async (
             ...restData,
             date: restData.date ? new Date(restData.date) : undefined, // Convert date string if provided
             teamId: teamIdUpdate, // Update teamId or set to null
+            venueId: venueIdUpdate, // Update venueId or set to null
              // Prevent updating ticket categories via this endpoint for now
             ticketCategories: undefined, // Explicitly remove if passed in data
             category: data.category, // Allow updating category
         },
-        include: { ticketCategories: true, team: true }, // Return updated event with categories and team
+        include: { ticketCategories: true, team: true, venue: true }, // Return updated event with includes
     });
 };
 

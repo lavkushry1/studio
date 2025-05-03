@@ -10,224 +10,232 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Enum for User Roles
-enum UserRole {
-  USER
-  ADMIN
-  ORGANIZER // Added Organizer role
-}
-
-// User Model
 model User {
-  id              String        @id @default(auto()) @map("_id") @db.ObjectId
-  email           String        @unique
-  password        String
-  name            String?
-  role            UserRole      @default(USER)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  organizedEvents Event[]       @relation("OrganizedBy") // Events organized by this user
-  bookings        Booking[] // Bookings made by this user
-  refreshTokens   RefreshToken[] // User's refresh tokens
-  auditLogs       AuditLog[] // Logs initiated by this user
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  email         String    @unique
+  name          String?
+  password      String
+  role          UserRole  @default(USER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  organizedEvents Event[]   @relation("OrganizerEvents") // Events organized by this user
+  bookings      Booking[] // Bookings made by this user
+  refreshTokens RefreshToken[] // User's refresh tokens
+  auditLogs     AuditLog[] // Actions performed by this user
 }
 
-// Refresh Token Model (for JWT refresh strategy)
-model RefreshToken {
-  id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  token     String? // Can be null or store a reference/hashed version. Not storing raw JWT.
-  userId    String   @db.ObjectId
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-}
-
-// Enum for Event Status
-enum EventStatus {
-  DRAFT
-  PUBLISHED
-  CANCELLED
-}
-
-// Event Model
 model Event {
-  id                String           @id @default(auto()) @map("_id") @db.ObjectId
-  title             String
-  description       String
-  category          String? // Added category field
-  date              DateTime
-  location          String
-  imageUrl          String?
-  status            EventStatus      @default(DRAFT)
-  hasSeatMap        Boolean          @default(false) // Flag for seat map UI
-  organizerId       String           @db.ObjectId
-  organizer         User             @relation("OrganizedBy", fields: [organizerId], references: [id])
-  ticketCategories  TicketCategory[]
-  seats             Seat[] // Seats associated with this event
-  bookings          Booking[] // Bookings for this event
-  teamId            String?          @db.ObjectId // Optional link to a Team
-  team              Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull) // Relation to Team
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
+  id              String           @id @default(auto()) @map("_id") @db.ObjectId
+  title           String
+  description     String
+  category        String?          // Optional category (e.g., Sports, Music)
+  date            DateTime
+  location        String
+  imageUrl        String?
+  status          EventStatus      @default(DRAFT)
+  hasSeatMap      Boolean          @default(false) // Indicates if the event uses a seat map
+  organizerId     String           @db.ObjectId
+  organizer       User             @relation("OrganizerEvents", fields: [organizerId], references: [id])
+  teamId          String?          @db.ObjectId // Optional relation to Team
+  team            Team?            @relation(fields: [teamId], references: [id])
+  venueId         String?          @db.ObjectId // Optional relation to Venue
+  venue           Venue?           @relation(fields: [venueId], references: [id])
+  ticketCategories TicketCategory[]
+  seats           Seat[]           // Seats associated with this event (for seat map events)
+  bookings        Booking[]        // Bookings for this event
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
 
-  @@index([organizerId])
+  // Add index for searching/filtering
   @@index([date])
   @@index([location])
-  @@index([category]) // Added index for category
+  @@index([category])
   @@index([status])
-  @@index([teamId]) // Added index for teamId
-
-  // Add text index for searching across multiple fields
-  @@fulltext([title, description, location, category])
+  @@index([teamId])
+  @@index([venueId])
+  @@fulltext([title, description, location, category]) // Text index for search
 }
 
-// Ticket Category Model (related to Event)
 model TicketCategory {
   id        String   @id @default(auto()) @map("_id") @db.ObjectId
-  name      String   // e.g., "General Admission", "VIP", "Early Bird"
+  name      String   // e.g., General Admission, VIP, Balcony
   price     Float
-  totalQty  Int // Total available tickets in this category
-  bookedQty Int    @default(0) // Number of tickets booked in this category
+  totalQty  Int      // Total available for this category (if not using seat map)
+  bookedQty Int      @default(0) // Number booked in this category
   eventId   String   @db.ObjectId
-  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event     Event    @relation(fields: [eventId], references: [id])
+  seats     Seat[]   // Seats belonging to this category (if using seat maps)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([eventId])
 }
 
-// Enum for Seat Status
-enum SeatStatus {
-  AVAILABLE
-  RESERVED // Temporarily held during booking process
-  BOOKED // Confirmed booking
-  UNAVAILABLE // Blocked by organizer
-}
-
-// Seat Model (related to Event)
 model Seat {
-  id         String      @id @default(auto()) @map("_id") @db.ObjectId
-  row        String // e.g., "A", "B", "1", "2"
-  number     Int // Seat number within the row
-  section    String? // Optional: e.g., "North Stand", "Block C"
-  status     SeatStatus  @default(AVAILABLE)
-  eventId    String      @db.ObjectId
-  event      Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  bookingId  String?     @db.ObjectId // Link to the booking if booked
-  booking    Booking?    @relation(fields: [bookingId], references: [id], onDelete: SetNull)
-  ticketId   String?     @unique @db.ObjectId // Link to the generated ticket for this seat
-  ticket     Ticket?     @relation(fields: [ticketId], references: [id], onDelete: SetNull)
-  reservedAt DateTime? // Timestamp when the seat was reserved (for timeout)
-  price      Float? // Optional price override for specific seats (e.g., premium view)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  id            String        @id @default(auto()) @map("_id") @db.ObjectId
+  row           String
+  number        Int
+  section       String?       // e.g., North Stand, Section 101
+  status        SeatStatus    @default(AVAILABLE)
+  eventId       String        @db.ObjectId
+  event         Event         @relation(fields: [eventId], references: [id])
+  bookingId     String?       @db.ObjectId // Link to the booking if booked
+  booking       Booking?      @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+  ticketId      String?       @unique @db.ObjectId // Link to the specific ticket generated for this seat
+  ticket        Ticket?
+  ticketCategoryId String?    @db.ObjectId // Optional link to a specific ticket category for pricing/type
+  ticketCategory TicketCategory? @relation(fields: [ticketCategoryId], references: [id])
+  reservedAt    DateTime?     // Timestamp when the seat was reserved
+  price         Float?        // Optional price override specific to this seat
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
 
-  @@index([eventId])
-  @@index([eventId, status]) // For querying available seats quickly
-  @@index([eventId, section, row, number], name: "event_seat_identifier") // Unique identifier within event
+  // Index for efficient querying of seat maps
+  @@index([eventId, status])
+  @@index([eventId, section, row, number]) // Ensure uniqueness within an event
   @@index([bookingId])
+  @@index([ticketCategoryId])
 }
 
-// Enum for Booking Status
-enum BookingStatus {
-  PENDING // Initial state, awaiting payment details
-  PROCESSING // UTR submitted, awaiting admin verification
-  CONFIRMED // Payment verified, tickets issued/ready
-  CANCELLED // Booking cancelled by user or system (timeout)
-  FAILED // Payment failed or rejected by admin
-  ERROR // Added for issues during ticket generation etc.
-}
-
-// Booking Model
 model Booking {
   id                String        @id @default(auto()) @map("_id") @db.ObjectId
-  userId            String?       @db.ObjectId // Optional: Link to registered user
-  user              User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId            String?       @db.ObjectId // Optional: Link to user if logged in
+  user              User?         @relation(fields: [userId], references: [id])
   eventId           String        @db.ObjectId
   event             Event         @relation(fields: [eventId], references: [id])
-  quantity          Int // Number of tickets/seats booked
+  quantity          Int           // Number of tickets booked (esp. for non-seat-map events)
   totalPrice        Float
   status            BookingStatus @default(PENDING)
-  deliveryName      String? // Name provided during checkout
-  deliveryEmail     String? // Email provided during checkout
-  deliveryPhone     String? // Phone provided during checkout
+  deliveryName      String?       // Name for ticket delivery/holder
+  deliveryEmail     String?       // Email for ticket delivery
+  deliveryPhone     String?       // Phone for ticket delivery/updates
   utr               String?       @unique // Unique Transaction Reference for UPI
-  paymentVerifiedAt DateTime? // Timestamp when admin verified the payment
-  seats             Seat[] // Seats included in this booking
-  tickets           Ticket[] // Tickets generated for this booking
+  paymentVerifiedAt DateTime?
+  seats             Seat[]        // Seats included in this booking
+  tickets           Ticket[]      // Tickets generated for this booking
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
 
   @@index([userId])
   @@index([eventId])
   @@index([status])
-  @@index([createdAt])
+  @@index([utr])
 }
 
-// Ticket Model (generated after confirmed booking)
 model Ticket {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  bookingId   String    @db.ObjectId
-  booking     Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
-  eventId     String    @db.ObjectId // Store event ID directly on ticket
-  eventTitle  String // Denormalized for easier display on ticket
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  bookingId   String   @db.ObjectId
+  booking     Booking  @relation(fields: [bookingId], references: [id])
+  eventId     String   @db.ObjectId
+  eventTitle  String   // Denormalized for easy display
   eventDate   DateTime // Denormalized
-  seatId      String?   @unique @db.ObjectId // If this ticket is for a specific seat
-  seat        Seat? // Relation back to the Seat
-  qrData      String    @unique // Unique data to be encoded in the QR code
-  isUsed      Boolean   @default(false) // Has the ticket been scanned/used for entry?
-  usedAt      DateTime? // Timestamp when the ticket was used
-  generatedAt DateTime  @default(now()) // When the ticket record was created
+  seatId      String?  @unique @db.ObjectId // Link to the specific seat if applicable
+  seat        Seat?    @relation(fields: [seatId], references: [id])
+  qrData      String   @unique // Unique data for QR code validation
+  isUsed      Boolean  @default(false)
+  usedAt      DateTime?
+  generatedAt DateTime @default(now())
   emailedAt   DateTime? // Timestamp when the ticket email was sent
-
-  @@index([bookingId])
-  @@index([eventId])
-  @@index([seatId])
 }
 
-// UPI Settings Model (Admin managed)
+model RefreshToken {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  token     String   // Store unique ID related to the token, not the token itself for security
+  userId    String   @db.ObjectId
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
 model UpiSetting {
-  id       String   @id @default(auto()) @map("_id") @db.ObjectId
-  upiId    String   @unique // The UPI ID (VPA)
-  isActive Boolean  @default(false)
-  // updatedByAdminId String? // Optional: Track which admin last updated
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  upiId     String   @unique // The UPI Virtual Payment Address (VPA)
+  isActive  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  // updatedByAdminId String? // Optional: Track who made the change
 
   @@index([isActive])
 }
 
-// Audit Log Model
-model AuditLog {
-  id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  action        String // e.g., "Payment Approved", "Booking Cancelled", "Setting Updated"
-  entity        String // e.g., "Booking", "UpiSetting", "Ticket"
-  entityId      String // ID of the affected entity
-  userId        String // ID of the user performing the action (or "SYSTEM")
-  user          User?    @relation(fields: [userId], references: [id], onDelete: SetNull) // Optional relation back to user
-  timestamp     DateTime @default(now())
-  details       String? // Additional details about the action
-  previousValue Json? // Store previous state (e.g., old status)
-  newValue      Json? // Store new state (e.g., new status)
-
-  @@index([entity, entityId])
-  @@index([userId])
-  @@index([action])
-  @@index([timestamp])
-}
-
-// Team Model (for IPL specific features)
+// Added Team model
 model Team {
   id            String   @id @default(auto()) @map("_id") @db.ObjectId
-  name          String   @unique // Full team name (e.g., "Mumbai Indians")
-  shortName     String   @unique // Short code (e.g., "MI")
-  logoUrl       String?  // URL to the team logo
-  primaryColor  String?  // Hex code for primary color (e.g., "#004BA0")
-  secondaryColor String? // Hex code for secondary color (e.g., "#D1AB3E")
-  colorAccent   String? // Hex code for accent color
+  name          String   @unique
+  shortName     String   @unique // e.g., MI, CSK
+  logoUrl       String?
+  primaryColor  String?  // Hex color code, e.g., #004BA0
+  secondaryColor String? // Hex color code
+  colorAccent   String?  // Hex color code
   events        Event[]  // Events associated with this team
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// Added Venue model
+model Venue {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  name        String   @unique
+  location    String
+  city        String?
+  country     String?
+  capacity    Int?
+  imageUrl    String?
+  amenities   String[] // List of amenities
+  layoutKey   String?  // Key to identify a predefined layout (e.g., 'wankhede_2024')
+  events      Event[]  // Events held at this venue
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+  @@index([location])
+  @@index([city])
+}
+
+
+model AuditLog {
+  id            String    @id @default(auto()) @map("_id") @db.ObjectId
+  action        String    // e.g., 'Payment Approved', 'Event Updated'
+  entity        String    // e.g., 'Booking', 'Event'
+  entityId      String
+  userId        String    @db.ObjectId // User performing the action ('SYSTEM' for automated actions)
+  user          User?     @relation(fields: [userId], references: [id])
+  timestamp     DateTime  @default(now())
+  details       String?   // More details about the action
+  previousValue Json?     // Store previous state as JSON
+  newValue      Json?     // Store new state as JSON
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([timestamp])
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  ORGANIZER // Added Organizer role
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+}
+
+enum SeatStatus {
+  AVAILABLE
+  RESERVED    // Temporarily held during booking process
+  BOOKED      // Payment confirmed or allocated
+  UNAVAILABLE // Not for sale (e.g., maintenance, blocked)
+}
+
+enum BookingStatus {
+  PENDING     // Booking created, awaiting payment/UTR
+  PROCESSING  // UTR submitted, awaiting admin verification
+  CONFIRMED   // Payment verified, tickets issued/issuable
+  CANCELLED   // Booking cancelled by user or system (timeout)
+  FAILED      // Payment failed or rejected by admin
+  ERROR       // Error during ticket generation/processing
 }

@@ -16,12 +16,16 @@ export const createEvent = async (req: Request<object, object, CreateEventInput>
   }
   try {
     // Pass user ID and role from authenticated request to the service layer for authorization
-    // Also pass the validated request body which now includes optional teamId
+    // Also pass the validated request body which now includes optional teamId and venueId
     const event = await eventService.createEvent(req.body, req.user.userId, req.user.role);
     res.status(201).json(event);
   } catch (error: any) {
     if (error.message.startsWith('Forbidden')) {
        return res.status(403).json({ message: error.message });
+    }
+    // Handle specific validation errors like invalid ID
+    if (error.message.includes('Invalid Team ID') || error.message.includes('Invalid Venue ID')) {
+        return res.status(400).json({ message: error.message });
     }
     console.error('Create event error:', error);
     res.status(500).json({ message: 'Internal Server Error' });
@@ -36,8 +40,8 @@ export const createEvent = async (req: Request<object, object, CreateEventInput>
  */
 export const getAllEvents = async (req: Request<object, object, object, ListEventsQuery>, res: Response) => {
   const isAdminView = req.user?.role === UserRole.ADMIN; // Check if the viewer is an admin
-  // Destructure all potential query params including teamId
-  const { q, category, location, teamId, startDate, endDate, sortBy, order, page: pageStr, limit: limitStr } = req.query;
+  // Destructure all potential query params including teamId and venueId
+  const { q, category, location, teamId, venueId, startDate, endDate, sortBy, order, page: pageStr, limit: limitStr } = req.query;
 
   try {
     const options: { where?: Prisma.EventWhereInput, skip?: number, take?: number, orderBy?: Prisma.EventOrderByWithRelationInput } = {};
@@ -75,6 +79,10 @@ export const getAllEvents = async (req: Request<object, object, object, ListEven
     if (teamId) {
         where.teamId = teamId as string;
     }
+     // Filter by venueId (exact match)
+    if (venueId) {
+        where.venueId = venueId as string;
+    }
 
 
     // Text Search (using 'q' query parameter)
@@ -89,6 +97,7 @@ export const getAllEvents = async (req: Request<object, object, object, ListEven
             { category: { contains: q, mode: 'insensitive' } },
             // Optionally search by team name if 'q' is present? Requires relation join.
             // { team: { name: { contains: q, mode: 'insensitive' } } } // Example if relation is included
+             { venue: { name: { contains: q, mode: 'insensitive' } } } // Search by venue name too
         ];
     }
 
@@ -131,8 +140,8 @@ export const getAllEvents = async (req: Request<object, object, object, ListEven
 export const getEventById = async (req: Request<GetEventParams>, res: Response) => {
   const isAdminView = req.user?.role === UserRole.ADMIN;
   try {
-    // Include team relation when fetching single event
-    const event = await eventService.findEventById(req.params.eventId, { ticketCategories: true, organizer: true, team: true });
+    // Include team and venue relations when fetching single event
+    const event = await eventService.findEventById(req.params.eventId, { ticketCategories: true, organizer: true, team: true, venue: true });
     if (!event) {
       return res.status(404).json({ message: 'Event not found' });
     }
@@ -160,7 +169,7 @@ export const updateEvent = async (req: Request<UpdateEventParams, object, Update
   }
   try {
     // Pass user ID and role from authenticated request to the service layer for authorization
-    // Pass validated request body which now includes optional teamId
+    // Pass validated request body which now includes optional teamId and venueId
     const updatedEvent = await eventService.updateEvent(req.params.eventId, req.body, req.user.userId, req.user.role);
     res.status(200).json(updatedEvent);
   } catch (error: any) {
@@ -169,6 +178,10 @@ export const updateEvent = async (req: Request<UpdateEventParams, object, Update
     }
     if (error.message.startsWith('Forbidden')) {
          return res.status(403).json({ message: error.message });
+    }
+     // Handle specific validation errors like invalid ID
+     if (error.message.includes('Invalid Team ID') || error.message.includes('Invalid Venue ID')) {
+        return res.status(400).json({ message: error.message });
     }
     console.error('Update event error:', error);
     res.status(500).json({ message: 'Internal Server Error' });

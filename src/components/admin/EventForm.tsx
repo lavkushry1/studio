@@ -15,18 +15,19 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select"; // Added SelectGroup, SelectLabel
 import { cn } from "@/lib/utils";
-import { CalendarIcon, PlusCircle, Trash2, Loader2, Upload, Image as ImageIcon, Tag, Users } from "lucide-react"; // Added Users icon for Team
+import { CalendarIcon, PlusCircle, Trash2, Loader2, Upload, Image as ImageIcon, Tag, Users, Building } from "lucide-react"; // Added Building for Venue
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
-import { createEvent, getTeams } from '@/services/eventService'; // Added getTeams
+import { createEvent, getTeams, getVenues } from '@/services/eventService'; // Added getVenues
 import { useAuth } from '@/hooks/useAuth';
-import { EventStatus, Team } from '@prisma/client'; // Import EventStatus and Team
+import { EventStatus, Team, Venue } from '@prisma/client'; // Import EventStatus, Team, Venue
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
+import { Switch } from '@/components/ui/switch'; // Import Switch for hasSeatMap
 
 interface EventFormProps {
-    initialData?: EventFormValues & { teamId?: string | null }; // For editing later, include teamId
+    initialData?: EventFormValues & { teamId?: string | null, venueId?: string | null }; // Include venueId
 }
 
 export function EventForm({ initialData }: EventFormProps) {
@@ -47,6 +48,8 @@ export function EventForm({ initialData }: EventFormProps) {
             imageUrl: '',
             status: EventStatus.DRAFT, // Default status
             teamId: null, // Initialize teamId as null
+            venueId: null, // Initialize venueId as null
+            hasSeatMap: false, // Default to false
             ticketCategories: [{ name: '', price: 0, totalQty: 0 }], // Start with one empty category
         },
     });
@@ -56,11 +59,20 @@ export function EventForm({ initialData }: EventFormProps) {
         name: "ticketCategories",
     });
 
+    const token = getAccessToken(); // Get token once
+
      // Fetch teams for the dropdown
     const { data: teams, isLoading: isLoadingTeams } = useQuery<Team[]>({
         queryKey: ['teams'],
-        queryFn: () => getTeams(getAccessToken()!), // Assuming getTeams requires token
-        enabled: !!getAccessToken(),
+        queryFn: () => getTeams(token!), // Assuming getTeams requires token
+        enabled: !!token,
+    });
+
+     // Fetch venues for the dropdown
+     const { data: venues, isLoading: isLoadingVenues } = useQuery<Venue[]>({
+        queryKey: ['venues'],
+        queryFn: () => getVenues(token!), // Assuming getVenues service function exists
+        enabled: !!token,
     });
 
 
@@ -88,7 +100,6 @@ export function EventForm({ initialData }: EventFormProps) {
 
     async function onSubmit(values: EventFormValues) {
         setIsLoading(true);
-        const token = getAccessToken();
 
         if (!token) {
             toast({
@@ -109,6 +120,7 @@ export function EventForm({ initialData }: EventFormProps) {
                  // Ensure image URL is empty string if not provided, not null/undefined
                  imageUrl: values.imageUrl || undefined, // Send undefined if empty for optional field
                  teamId: values.teamId || null, // Ensure teamId is null if empty or 'none'
+                 venueId: values.venueId || null, // Ensure venueId is null if empty or 'none'
              };
 
             console.log("Submitting data:", dataToSend);
@@ -190,11 +202,11 @@ export function EventForm({ initialData }: EventFormProps) {
                                 name="date"
                                 render={({ field }) => (
                                     <FormItem className="flex flex-col">
-                                        <FormLabel>Date & Time</FormLabel>
+                                        <FormLabel>Date &amp; Time</FormLabel>
                                         <Popover>
-                                            <PopoverTrigger asChild>
-                                                <FormControl>
-                                                    <Button
+                                             <FormControl> {/* FormControl wraps the trigger */}
+                                                <PopoverTrigger asChild>
+                                                     <Button
                                                         variant={"outline"}
                                                         className={cn(
                                                             "pl-3 text-left font-normal",
@@ -209,8 +221,8 @@ export function EventForm({ initialData }: EventFormProps) {
                                                         )}
                                                         <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
                                                     </Button>
-                                                </FormControl>
-                                            </PopoverTrigger>
+                                                </PopoverTrigger>
+                                             </FormControl>
                                             <PopoverContent className="w-auto p-0" align="start">
                                                 <Calendar
                                                     mode="single"
@@ -233,45 +245,80 @@ export function EventForm({ initialData }: EventFormProps) {
                                 name="location"
                                 render={({ field }) => (
                                     <FormItem>
-                                        <FormLabel>Location</FormLabel>
+                                        <FormLabel>Location String</FormLabel>
                                         <FormControl>
                                             <Input placeholder="e.g., Wankhede Stadium, Mumbai" {...field} disabled={isLoading} />
                                         </FormControl>
+                                         <FormDescription className="text-xs">This is displayed directly. Optionally select a Venue below.</FormDescription>
                                         <FormMessage />
                                     </FormItem>
                                 )}
                             />
                         </div>
-                         <FormField
-                            control={form.control}
-                            name="teamId"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Associated Team (Optional)</FormLabel>
-                                     <Select
-                                         onValueChange={(value) => field.onChange(value === 'none' ? null : value)} // Set null if 'none' selected
-                                         defaultValue={field.value || 'none'} // Default to 'none' if null/undefined
-                                         disabled={isLoading || isLoadingTeams}
-                                    >
-                                        <FormControl>
-                                            <SelectTrigger>
-                                                 <SelectValue placeholder="Select a team (optional)" />
-                                            </SelectTrigger>
-                                        </FormControl>
-                                         <SelectContent>
-                                            <SelectItem value="none">-- No Team --</SelectItem>
-                                            {isLoadingTeams && <SelectItem value="loading" disabled>Loading teams...</SelectItem>}
-                                            {teams?.map((team) => (
-                                                <SelectItem key={team.id} value={team.id}>
-                                                     {team.name} ({team.shortName})
-                                                 </SelectItem>
-                                            ))}
-                                         </SelectContent>
-                                     </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                             <FormField
+                                control={form.control}
+                                name="teamId"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Associated Team (Optional)</FormLabel>
+                                         <Select
+                                             onValueChange={(value) => field.onChange(value === 'none' ? null : value)} // Set null if 'none' selected
+                                             value={field.value ?? 'none'} // Ensure value is controlled, default to 'none' if null
+                                             disabled={isLoading || isLoadingTeams}
+                                        >
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                     <Users className="h-4 w-4 mr-2 text-muted-foreground"/>
+                                                     <SelectValue placeholder="Select a team (optional)" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                             <SelectContent>
+                                                <SelectItem value="none">-- No Team --</SelectItem>
+                                                {isLoadingTeams && <SelectItem value="loading" disabled>Loading teams...</SelectItem>}
+                                                {teams?.map((team) => (
+                                                    <SelectItem key={team.id} value={team.id}>
+                                                         {team.name} ({team.shortName})
+                                                     </SelectItem>
+                                                ))}
+                                             </SelectContent>
+                                         </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                             <FormField
+                                control={form.control}
+                                name="venueId"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Associated Venue (Optional)</FormLabel>
+                                         <Select
+                                             onValueChange={(value) => field.onChange(value === 'none' ? null : value)}
+                                             value={field.value ?? 'none'} // Ensure value is controlled
+                                             disabled={isLoading || isLoadingVenues}
+                                        >
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <Building className="h-4 w-4 mr-2 text-muted-foreground"/>
+                                                    <SelectValue placeholder="Select a venue (optional)" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                             <SelectContent>
+                                                <SelectItem value="none">-- No Venue --</SelectItem>
+                                                {isLoadingVenues && <SelectItem value="loading" disabled>Loading venues...</SelectItem>}
+                                                {venues?.map((venue) => (
+                                                    <SelectItem key={venue.id} value={venue.id}>
+                                                         {venue.name} ({venue.location})
+                                                     </SelectItem>
+                                                ))}
+                                             </SelectContent>
+                                         </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
                         <FormField
                             control={form.control}
                             name="imageUrl"
@@ -285,6 +332,7 @@ export function EventForm({ initialData }: EventFormProps) {
                                                type="url"
                                                placeholder="https://example.com/image.jpg"
                                                {...field}
+                                               value={field.value || ''} // Ensure value is controlled
                                                onChange={handleImageUrlChange} // Use custom handler
                                                disabled={isLoading}
                                             />
@@ -301,28 +349,52 @@ export function EventForm({ initialData }: EventFormProps) {
                                 </FormItem>
                             )}
                         />
-                        <FormField
-                            control={form.control}
-                            name="status"
-                            render={({ field }) => (
-                                <FormItem>
-                                    <FormLabel>Status</FormLabel>
-                                    <Select onValueChange={field.onChange} defaultValue={field.value} disabled={isLoading}>
-                                        <FormControl>
-                                            <SelectTrigger>
-                                                <SelectValue placeholder="Select event status" />
-                                            </SelectTrigger>
+                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center">
+                            <FormField
+                                control={form.control}
+                                name="status"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel>Status</FormLabel>
+                                        <Select onValueChange={field.onChange} value={field.value || EventStatus.DRAFT} disabled={isLoading}>
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Select event status" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                <SelectItem value={EventStatus.DRAFT}>Draft</SelectItem>
+                                                <SelectItem value={EventStatus.PUBLISHED}>Published</SelectItem>
+                                                <SelectItem value={EventStatus.CANCELLED}>Cancelled</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                            {/* Has Seat Map Toggle */}
+                             <FormField
+                                control={form.control}
+                                name="hasSeatMap"
+                                render={({ field }) => (
+                                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-3 shadow-sm bg-secondary/30 mt-5 sm:mt-0">
+                                        <div className="space-y-0.5">
+                                            <FormLabel>Enable Seat Map</FormLabel>
+                                             <FormDescription className="text-xs">
+                                                Allow users to select specific seats?
+                                            </FormDescription>
+                                        </div>
+                                         <FormControl>
+                                            <Switch
+                                                checked={field.value}
+                                                onCheckedChange={field.onChange}
+                                                disabled={isLoading}
+                                            />
                                         </FormControl>
-                                        <SelectContent>
-                                            <SelectItem value={EventStatus.DRAFT}>Draft</SelectItem>
-                                            <SelectItem value={EventStatus.PUBLISHED}>Published</SelectItem>
-                                            <SelectItem value={EventStatus.CANCELLED}>Cancelled</SelectItem>
-                                        </SelectContent>
-                                    </Select>
-                                    <FormMessage />
-                                </FormItem>
-                            )}
-                        />
+                                    </FormItem>
+                                )}
+                            />
+                        </div>
                     </CardContent>
                 </Card>
 
