@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { EventStatus, BookingStatus, UserRole } from '@prisma/client'; // Import enums
+import { EventStatus, BookingStatus, UserRole, SeatStatus } from '@prisma/client'; // Import enums
 
 // ========== Auth Schemas ==========
 
@@ -109,21 +109,90 @@ export const ListEventsSchema = z.object({
 });
 export type ListEventsQuery = z.infer<typeof ListEventsSchema>['query'];
 
+
+// ========== Seat Schemas ==========
+
+// Schema for defining a single seat in the layout editor
+const SeatDefinitionSchema = z.object({
+    row: z.string().min(1, { message: 'Row identifier is required (e.g., A)' }),
+    number: z.coerce.number().int().positive({ message: 'Seat number must be a positive integer' }),
+    section: z.string().optional().describe('Optional section name (e.g., North Stand)'),
+    status: z.nativeEnum(SeatStatus).default(SeatStatus.AVAILABLE).optional().describe('Initial status (usually AVAILABLE or UNAVAILABLE)'),
+});
+export type SeatDefinition = z.infer<typeof SeatDefinitionSchema>;
+
+
+// Schema for updating the entire seat layout for an event (Organizer action)
+export const UpdateSeatLayoutSchema = z.object({
+    params: z.object({
+        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+    }),
+    body: z.object({
+        seats: z.array(SeatDefinitionSchema).min(1, { message: 'At least one seat definition is required' }),
+    }),
+});
+export type UpdateSeatLayoutInput = z.infer<typeof UpdateSeatLayoutSchema>['body'];
+export type UpdateSeatLayoutParams = z.infer<typeof UpdateSeatLayoutSchema>['params'];
+
+// Schema for reserving seats (User action during checkout)
+export const ReserveSeatsSchema = z.object({
+    params: z.object({
+        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+    }),
+    body: z.object({
+        seatIds: z.array(z.string().cuid({ message: 'Invalid seat ID format' })).min(1, { message: 'At least one seat ID is required' }),
+        // reservationId: z.string().uuid().optional(), // Optional ID to group reservations
+    }),
+});
+export type ReserveSeatsInput = z.infer<typeof ReserveSeatsSchema>['body'];
+export type ReserveSeatsParams = z.infer<typeof ReserveSeatsSchema>['params'];
+
+// Schema for releasing reserved seats (e.g., on timeout or booking cancellation)
+export const ReleaseSeatsSchema = z.object({
+    params: z.object({
+        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+    }),
+    body: z.object({
+        seatIds: z.array(z.string().cuid({ message: 'Invalid seat ID format' })).min(1, { message: 'At least one seat ID is required' }),
+        // reservationId: z.string().uuid().optional(), // Match reservation ID if used
+    }),
+});
+export type ReleaseSeatsInput = z.infer<typeof ReleaseSeatsSchema>['body'];
+export type ReleaseSeatsParams = z.infer<typeof ReleaseSeatsSchema>['params'];
+
+
+// Schema for getting seat map for an event (Public or authenticated user)
+export const GetSeatMapSchema = z.object({
+    params: z.object({
+        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+    }),
+    query: z.object({
+        // Optional query params for filtering (e.g., section)
+        section: z.string().optional(),
+        status: z.nativeEnum(SeatStatus).optional(),
+    }).optional(),
+});
+export type GetSeatMapParams = z.infer<typeof GetSeatMapSchema>['params'];
+export type GetSeatMapQuery = z.infer<typeof GetSeatMapSchema>['query'];
+
+
 // ========== Booking Schemas ==========
 
 export const CreateBookingSchema = z.object({
   body: z.object({
     eventId: z.string().cuid({ message: 'Invalid event ID format' }),
-    quantity: z.number().int().positive({ message: 'Quantity must be a positive integer' }),
-    // Include delivery details only if needed *at creation* (might be separate step)
+    quantity: z.number().int().positive({ message: 'Quantity must be a positive integer' }).optional(), // Make optional if using seats
+    seatIds: z.array(z.string().cuid()).optional().describe('IDs of the seats being booked'), // Add seatIds
     deliveryName: z.string().min(1, {message: "Delivery name is required"}).optional(), // Make optional if collected later
     deliveryEmail: z.string().email({message: "Invalid delivery email"}).optional(),
     deliveryPhone: z.string().min(10, {message: "Invalid phone number"}).optional(), // Basic length check
-    // userId is usually inferred from the authenticated user, not passed in body
-    // ticketCategoryId could be added if booking specific category
+  }).refine(data => data.quantity || (data.seatIds && data.seatIds.length > 0), {
+      message: "Either quantity or seatIds must be provided",
+      path: ["quantity", "seatIds"], // Indicate which fields are involved
   }),
 });
 export type CreateBookingInput = z.infer<typeof CreateBookingSchema>['body'];
+
 
 export const SubmitUtrSchema = z.object({
     params: z.object({

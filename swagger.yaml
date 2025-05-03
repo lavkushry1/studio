@@ -110,6 +110,20 @@ components:
             type: array
             items:
               $ref: '#/components/schemas/TicketCategory'
+        seats: # Included from relation (optional based on endpoint)
+            type: array
+            items:
+              $ref: '#/components/schemas/Seat'
+        bookings: # Included from relation (optional based on endpoint)
+            type: array
+            items:
+                type: object # Partial booking info
+                properties:
+                    id:
+                      type: string
+                    status:
+                      type: string
+                      enum: [PENDING, PROCESSING, CONFIRMED, CANCELLED, FAILED]
         createdAt:
           type: string
           format: date-time
@@ -166,6 +180,73 @@ components:
         - eventId
         - createdAt
         - updatedAt
+
+    # ========== Seat Schema ==========
+    Seat:
+        type: object
+        properties:
+            id:
+              type: string
+              format: cuid
+              example: "clxl0f1g20003u0pqh5i6j7k8"
+            row:
+              type: string
+              example: "A"
+            number:
+              type: integer
+              example: 1
+            section:
+              type: string
+              nullable: true
+              example: "North Stand"
+            status:
+              type: string
+              enum: [AVAILABLE, RESERVED, BOOKED, UNAVAILABLE]
+              example: AVAILABLE
+            eventId:
+              type: string
+              format: cuid
+            bookingId:
+              type: string
+              format: cuid
+              nullable: true
+            reservedAt:
+              type: string
+              format: date-time
+              nullable: true
+            createdAt:
+              type: string
+              format: date-time
+            updatedAt:
+              type: string
+              format: date-time
+        required:
+         - id
+         - row
+         - number
+         - status
+         - eventId
+         - createdAt
+         - updatedAt
+
+    SeatMapResponse:
+        type: array
+        items:
+            type: object # Return subset of fields for map view
+            properties:
+                id:
+                  type: string
+                row:
+                  type: string
+                number:
+                  type: integer
+                section:
+                  type: string
+                  nullable: true
+                status:
+                  type: string
+                  enum: [AVAILABLE, RESERVED, BOOKED, UNAVAILABLE]
+
 
     # ========== Booking Schema ==========
     Booking:
@@ -229,7 +310,20 @@ components:
              name:
                type: string
                nullable: true
-
+        seats: # Included from relation
+            type: array
+            items:
+                type: object # Subset of Seat fields
+                properties:
+                    id:
+                      type: string
+                    row:
+                      type: string
+                    number:
+                      type: integer
+                    section:
+                      type: string
+                      nullable: true
       required:
         - id
         - eventId
@@ -369,6 +463,63 @@ components:
            type: string
            enum: [DRAFT, PUBLISHED, CANCELLED]
 
+    SeatDefinition:
+        type: object
+        properties:
+            row:
+              type: string
+              example: "B"
+            number:
+              type: integer
+              example: 5
+            section:
+              type: string
+              example: "Lower Tier"
+            status:
+              type: string
+              enum: [AVAILABLE, UNAVAILABLE] # Initial status options
+              default: AVAILABLE
+        required:
+          - row
+          - number
+
+    UpdateSeatLayoutRequest:
+        type: object
+        properties:
+            seats:
+                type: array
+                items:
+                    $ref: '#/components/schemas/SeatDefinition'
+                minItems: 1
+        required:
+            - seats
+
+    ReserveSeatsRequest:
+        type: object
+        properties:
+            seatIds:
+                type: array
+                items:
+                    type: string
+                    format: cuid
+                minItems: 1
+                example: ["clxl0f1g20003u0pqh5i6j7k8", "clxl0f2h30004u0pqi7j8k9l0"]
+        required:
+            - seatIds
+
+    ReleaseSeatsRequest:
+        type: object
+        properties:
+            seatIds:
+                type: array
+                items:
+                    type: string
+                    format: cuid
+                minItems: 1
+                example: ["clxl0f1g20003u0pqh5i6j7k8"]
+        required:
+            - seatIds
+
     CreateBookingRequest:
         type: object
         properties:
@@ -380,6 +531,14 @@ components:
                 type: integer
                 minimum: 1
                 example: 2
+                description: "Required if seatIds is not provided."
+            seatIds:
+                type: array
+                items:
+                    type: string
+                    format: cuid
+                description: "Required if quantity is not provided. IDs of seats to book."
+                example: ["clxl0f1g20003u0pqh5i6j7k8", "clxl0f2h30004u0pqi7j8k9l0"]
             deliveryName:
                 type: string
                 example: "Booker Name"
@@ -392,11 +551,7 @@ components:
                 example: "1234567890"
         required:
             - eventId
-            - quantity
-            # Make delivery fields optional if collected later
-            #- deliveryName
-            #- deliveryEmail
-            #- deliveryPhone
+            # Either quantity or seatIds is required logically, enforced by validation schema
 
     SubmitUtrRequest:
         type: object
@@ -464,6 +619,23 @@ components:
         type: array
         items:
             $ref: '#/components/schemas/Booking'
+
+    ReserveSeatsResponse:
+        type: object
+        properties:
+            message:
+                type: string
+                example: "Seats reserved successfully."
+            reservedSeats:
+                type: array
+                items:
+                    type: string
+                    format: cuid
+                example: ["clxl0f1g20003u0pqh5i6j7k8", "clxl0f2h30004u0pqi7j8k9l0"]
+        required:
+            - message
+            - reservedSeats
+
 
   securitySchemes:
       bearerAuth:
@@ -667,6 +839,11 @@ paths:
             enum: [DRAFT, PUBLISHED, CANCELLED]
           description: Filter events by status (only PUBLISHED visible to non-admins unless specified)
         - in: query
+          name: category
+          schema:
+              type: string
+          description: Filter by category
+        - in: query
           name: location
           schema:
             type: string
@@ -675,19 +852,24 @@ paths:
           name: startDate
           schema:
             type: string
-            format: date # YYYY-MM-DD
-          description: Filter events starting on or after this date
+            format: date-time # ISO 8601 format
+          description: Filter events starting on or after this date/time
         - in: query
           name: endDate
           schema:
             type: string
-            format: date # YYYY-MM-DD
-          description: Filter events ending on or before this date
+            format: date-time # ISO 8601 format
+          description: Filter events ending on or before this date/time
+        - in: query
+          name: q
+          schema:
+             type: string
+          description: Full-text search query across title, description, location, category
         - in: query
           name: sortBy
           schema:
             type: string
-            enum: [date, title, createdAt]
+            enum: [date, title, createdAt, location, category] # Added location, category
             default: date
           description: Field to sort by
         - in: query
@@ -712,10 +894,33 @@ paths:
       responses:
         '200':
           description: A list of events
+          headers:
+             X-Total-Count:
+               schema:
+                 type: integer
+               description: Total number of events matching the filter criteria
+             X-Current-Page:
+               schema:
+                 type: integer
+               description: The current page number
+             X-Per-Page:
+               schema:
+                 type: integer
+               description: The number of items per page
+             X-Total-Pages:
+                schema:
+                  type: integer
+                description: The total number of pages
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventsListResponse'
+        '400':
+          description: Invalid query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '500':
           description: Internal Server Error
           content:
@@ -910,6 +1115,234 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /events/{eventId}/seats:
+    get:
+      summary: Get the seat map for an event
+      tags: [Seats, Events]
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the event
+        - in: query
+          name: section
+          schema:
+            type: string
+          description: Filter seats by section
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [AVAILABLE, RESERVED, BOOKED, UNAVAILABLE]
+          description: Filter seats by status (defaults to AVAILABLE if not specified)
+      responses:
+        '200':
+          description: Seat map data
+          content:
+            application/json:
+              schema:
+                 $ref: '#/components/schemas/SeatMapResponse'
+        '400':
+          description: Invalid event ID format or query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Update the entire seat layout for an event
+      tags: [Seats, Events, Admin, Organizer]
+      security:
+        - bearerAuth: [] # Requires ORGANIZER or ADMIN
+      parameters:
+        - in: path
+          name: eventId
+          required: true
+          schema:
+            type: string
+            format: cuid
+          description: ID of the event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateSeatLayoutRequest'
+      responses:
+        '200':
+          description: Seat layout updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        '400':
+          description: Validation Error, Invalid Event ID, or Cannot Modify Layout (e.g., event published or has bookings)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+           description: Unauthorized
+           content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+            description: Forbidden (Insufficient role)
+            content:
+              application/json:
+                schema:
+                  $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /events/{eventId}/seats/reserve:
+      post:
+          summary: Reserve seats for an event
+          tags: [Seats, Bookings]
+          security:
+              - bearerAuth: [] # Requires authenticated user
+          parameters:
+              - in: path
+                name: eventId
+                required: true
+                schema:
+                  type: string
+                  format: cuid
+                description: ID of the event
+          requestBody:
+              required: true
+              content:
+                  application/json:
+                      schema:
+                          $ref: '#/components/schemas/ReserveSeatsRequest'
+          responses:
+              '200':
+                  description: Seats reserved successfully
+                  content:
+                      application/json:
+                          schema:
+                              $ref: '#/components/schemas/ReserveSeatsResponse'
+              '400':
+                  description: Validation Error or Invalid Event ID
+                  content:
+                      application/json:
+                          schema:
+                              $ref: '#/components/schemas/ErrorResponse'
+              '401':
+                 description: Unauthorized
+                 content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/ErrorResponse'
+              '404':
+                description: Event not found or not available for booking
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/ErrorResponse'
+              '409':
+                  description: Conflict - One or more seats could not be reserved (not available/already reserved)
+                  content:
+                      application/json:
+                          schema:
+                              $ref: '#/components/schemas/ErrorResponse' # Include details about failed seats if possible
+              '500':
+                description: Internal Server Error
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/ErrorResponse'
+
+  /events/{eventId}/seats/release:
+      post:
+          summary: Release reserved seats
+          tags: [Seats, Bookings]
+          security:
+              - bearerAuth: [] # Requires authentication (user who reserved or system/admin)
+          parameters:
+              - in: path
+                name: eventId
+                required: true
+                schema:
+                  type: string
+                  format: cuid
+                description: ID of the event
+          requestBody:
+              required: true
+              content:
+                  application/json:
+                      schema:
+                          $ref: '#/components/schemas/ReleaseSeatsRequest'
+          responses:
+              '200':
+                  description: Seats released successfully
+                  content:
+                      application/json:
+                          schema:
+                              type: object
+                              properties:
+                                message:
+                                  type: string
+              '400':
+                  description: Validation Error, Seats not found, or Seats not currently reserved (or not by this user)
+                  content:
+                      application/json:
+                          schema:
+                              $ref: '#/components/schemas/ErrorResponse'
+              '401':
+                 description: Unauthorized
+                 content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/ErrorResponse'
+              '403':
+                  description: Forbidden (Attempting to release seats not reserved by this context)
+                  content:
+                      application/json:
+                          schema:
+                              $ref: '#/components/schemas/ErrorResponse'
+              '404':
+                  description: Event not found
+                  content:
+                      application/json:
+                          schema:
+                              $ref: '#/components/schemas/ErrorResponse'
+              '500':
+                description: Internal Server Error
+                content:
+                  application/json:
+                    schema:
+                      $ref: '#/components/schemas/ErrorResponse'
+
+
   /bookings:
     post:
         summary: Create a new booking
@@ -930,7 +1363,7 @@ paths:
                         schema:
                             $ref: '#/components/schemas/BookingResponse'
             '400':
-                description: Validation Error or Booking Error (e.g., insufficient tickets, event not found)
+                description: Validation Error or Booking Error (e.g., insufficient tickets/seats, event not found, seats not reserved)
                 content:
                     application/json:
                         schema:
@@ -941,6 +1374,12 @@ paths:
                     application/json:
                       schema:
                         $ref: '#/components/schemas/ErrorResponse'
+            '409':
+                description: Conflict (e.g., Seats specified were not in RESERVED state for this booking attempt)
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ErrorResponse'
             '500':
                 description: Internal Server Error
                 content:
@@ -1076,6 +1515,12 @@ paths:
                     application/json:
                         schema:
                             $ref: '#/components/schemas/ErrorResponse'
+            '409':
+                description: Conflict - UTR already used by another booking
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/ErrorResponse'
             '500':
                 description: Internal Server Error
                 content:
@@ -1146,7 +1591,12 @@ tags:
     description: Authentication related endpoints
   - name: Events
     description: Event management endpoints
+  - name: Seats
+    description: Seat management endpoints (nested under Events)
   - name: Bookings
     description: Booking management endpoints
   - name: Admin
     description: Admin-specific operations
+  - name: Organizer
+    description: Organizer-specific operations (often overlaps with Admin)
+

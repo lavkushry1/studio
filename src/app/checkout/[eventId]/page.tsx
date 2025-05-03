@@ -1,17 +1,18 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { Ticket, Tag, CreditCard, ShoppingCart, ArrowLeft, QrCode, Upload, CheckCircle, Loader2, XCircle, User, Mail, Phone } from 'lucide-react'; // Added icons
+import { Ticket, Tag, CreditCard, ShoppingCart, ArrowLeft, QrCode, Upload, CheckCircle, Loader2, XCircle, User, Mail, Phone, Armchair } from 'lucide-react'; // Added Armchair icon
 import Image from 'next/image';
 import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast'; // Import useToast
 import { Badge } from '@/components/ui/badge'; // Import Badge
+import SeatSelectionMap from '@/components/SeatSelectionMap'; // Import the Seat Map component
 
 // Mock data - Replace with actual fetching
 const mockEvent = {
@@ -19,8 +20,10 @@ const mockEvent = {
   name: 'IPL Finals 2024',
   date: new Date(2024, 10, 26, 19, 30),
   location: 'Wankhede Stadium, Mumbai',
+  hasSeatMap: true, // Indicate if the event uses a seat map
 };
 
+// Assume categories might apply even with seat maps (e.g., pricing tiers based on section)
 const mockCategories: { [key: string]: { name: string; price: number } } = {
   'cat1': { name: 'General Admission (Upper Tier)', price: 1500 },
   'cat2': { name: 'Lower Stand - East Wing', price: 3000 },
@@ -28,12 +31,24 @@ const mockCategories: { [key: string]: { name: string; price: number } } = {
   'cat4': { name: 'Corporate Box (Min. 10 seats)', price: 25000 },
 };
 
+// Mock seat data - replace with actual fetched data
+const mockSeats = [
+    { id: 's1', row: 'A', number: 1, section: 'North', status: 'AVAILABLE', price: 3000 },
+    { id: 's2', row: 'A', number: 2, section: 'North', status: 'AVAILABLE', price: 3000 },
+    { id: 's3', row: 'A', number: 3, section: 'North', status: 'BOOKED', price: 3000 },
+    { id: 's4', row: 'B', number: 1, section: 'North', status: 'AVAILABLE', price: 3000 },
+    { id: 's5', row: 'B', number: 2, section: 'North', status: 'RESERVED', price: 3000 },
+    { id: 's10', row: 'C', number: 10, section: 'East', status: 'AVAILABLE', price: 1500 },
+    { id: 's11', row: 'C', number: 11, section: 'East', status: 'AVAILABLE', price: 1500 },
+];
+
 const MOCK_QR_CODE_URL = 'https://picsum.photos/250/250?random=qr'; // Placeholder QR code
 const MOCK_UPI_ID = 'eventia-ipl@axisbank'; // Placeholder UPI ID
 
-type CheckoutStep = 'details' | 'payment' | 'verification' | 'confirmation';
+type CheckoutStep = 'selection' | 'details' | 'payment' | 'verification' | 'confirmation';
 
 const stepsConfig: { id: CheckoutStep; name: string }[] = [
+    { id: 'selection', name: 'Select Seats/Tickets' },
     { id: 'details', name: 'Booking Details' },
     { id: 'payment', name: 'Make Payment' },
     { id: 'verification', name: 'Verify Payment' },
@@ -43,11 +58,13 @@ const stepsConfig: { id: CheckoutStep; name: string }[] = [
 export default function CheckoutPage({ params }: { params: { eventId: string } }) {
   const searchParams = useSearchParams();
   const { toast } = useToast(); // Initialize toast
-  const categoryId = searchParams.get('category');
+  const categoryId = searchParams.get('category'); // For quantity-based booking
+  const initialSeatIds = searchParams.get('seats')?.split(',') || []; // For seat-based booking
   const { eventId } = params;
 
-  const [step, setStep] = useState<CheckoutStep>('details');
+  const [step, setStep] = useState<CheckoutStep>('selection'); // Start at selection
   const [quantity, setQuantity] = useState(1);
+  const [selectedSeats, setSelectedSeats] = useState<string[]>(initialSeatIds); // Track selected seat IDs
   const [discountCode, setDiscountCode] = useState('');
   const [discountApplied, setDiscountApplied] = useState(false);
   const [discountValue, setDiscountValue] = useState(0);
@@ -55,32 +72,90 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
   const [deliveryDetails, setDeliveryDetails] = useState({ name: '', email: '', phone: '' });
   const [utrNumber, setUtrNumber] = useState('');
   const [isProcessing, setIsProcessing] = useState(false); // For loading states
-   const [validationErrors, setValidationErrors] = useState<{ [key: string]: string }>({}); // For form validation
+  const [validationErrors, setValidationErrors] = useState<{ [key: string]: string }>({}); // For form validation
 
-  const category = categoryId ? mockCategories[categoryId] : null;
-  const event = mockEvent; // Fetch event details based on eventId
+  // Fetch event details (replace mock)
+  const event = mockEvent;
+  const isSeatMapEvent = event.hasSeatMap;
+
+  // Determine booking type based on context
+  const bookingType = isSeatMapEvent ? 'seat' : 'quantity';
+
+  // Selected category/price info
+  const category = categoryId && !isSeatMapEvent ? mockCategories[categoryId] : null; // Use category only for quantity booking
+  const selectedSeatDetails = useMemo(() => {
+      return selectedSeats.map(id => mockSeats.find(s => s.id === id)).filter(Boolean);
+  }, [selectedSeats]);
 
   // Calculate totals
-  const basePrice = category ? category.price : 0;
-  const subtotal = basePrice * quantity;
+  let basePricePerItem = 0;
+  let quantityOrSeats = 0;
+
+  if (bookingType === 'seat') {
+      // Price calculation for seat-based booking (sum of selected seats' prices)
+      // Needs refinement if prices vary significantly or based on categories linked to sections
+      basePricePerItem = selectedSeatDetails[0]?.price || 3000; // Example: use first seat's price or average
+      quantityOrSeats = selectedSeats.length;
+  } else if (category) {
+      // Price calculation for quantity-based booking
+      basePricePerItem = category.price;
+      quantityOrSeats = quantity;
+  }
+
+  const subtotal = basePricePerItem * quantityOrSeats;
   let calculatedDiscount = 0;
-  if (discountApplied && discountType && category) {
+  if (discountApplied && discountType) {
     calculatedDiscount = discountType === 'PERCENTAGE' ? subtotal * discountValue : discountValue;
     calculatedDiscount = Math.min(calculatedDiscount, subtotal);
   }
   const totalPrice = subtotal - calculatedDiscount;
 
+  // Initial setup and validation
   useEffect(() => {
-    if (!categoryId || !mockCategories[categoryId]) {
-      console.error("Invalid category ID");
-      toast({
-          title: "Error",
-          description: "Invalid ticket category selected. Please go back and choose a valid category.",
-          variant: "destructive",
-      });
-      // Consider redirecting: import { useRouter } from 'next/navigation'; const router = useRouter(); router.push(`/events/${eventId}`);
+    if (isSeatMapEvent) {
+        // If seat map event, but no seats selected initially, stay on selection step
+        if (initialSeatIds.length === 0) {
+            setStep('selection');
+        } else {
+            setSelectedSeats(initialSeatIds);
+             // TODO: Verify these seats are valid/available via API call
+             // If seats valid, move to details, otherwise back to selection
+            setStep('details'); // Assume valid for now
+        }
+    } else {
+        // Quantity-based booking
+        if (!categoryId || !mockCategories[categoryId]) {
+            console.error("Invalid category ID for quantity booking");
+            toast({
+                title: "Error",
+                description: "Invalid ticket category selected.",
+                variant: "destructive",
+            });
+            // Redirect or show error
+        } else {
+             setStep('details'); // Proceed directly to details if category is valid
+        }
     }
-  }, [categoryId, eventId, toast]);
+  }, [categoryId, eventId, toast, isSeatMapEvent, initialSeatIds]);
+
+
+  const handleSeatsSelected = (seatIds: string[]) => {
+     setSelectedSeats(seatIds);
+     // TODO: Call API to reserve these seats immediately
+     console.log("Seats selected, attempting reservation:", seatIds);
+     setIsProcessing(true);
+     // Simulate reservation API call
+     setTimeout(() => {
+         // On success:
+          toast({ title: "Seats Reserved", description: `Seats held for ${process.env.SEAT_RESERVATION_TIMEOUT_MINUTES || 15} minutes.` });
+          setStep('details');
+          setIsProcessing(false);
+         // On failure:
+         // toast({ title: "Reservation Failed", description: "Some seats could not be reserved.", variant: "destructive" });
+         // setSelectedSeats(previouslySelectedSeats); // Revert selection
+          //setIsProcessing(false);
+     }, 1000);
+  }
 
   const validateDetails = () => {
      const errors: { [key: string]: string } = {};
@@ -142,7 +217,7 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
      }
     setIsProcessing(true);
     // Simulate API call to create pending booking
-    console.log("Creating pending booking with details:", deliveryDetails, "Qty:", quantity, "Total:", totalPrice);
+    console.log("Creating pending booking with details:", deliveryDetails, "Qty/Seats:", quantityOrSeats, "Seat IDs:", selectedSeats, "Total:", totalPrice);
     setTimeout(() => {
       setStep('payment');
       setIsProcessing(false);
@@ -175,8 +250,8 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
     }, 1500);
   };
 
-  if (!category || !event) {
-    // This case should ideally be handled by redirection in useEffect, but added as fallback
+  // Loading state while determining initial setup
+  if ((!isSeatMapEvent && !category) || !event) {
     return (
          <div className="container mx-auto py-16 px-4 text-center">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-4" />
@@ -203,13 +278,13 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
        <div className="flex items-center justify-between mb-10 p-4 bg-muted/50 rounded-lg border border-border">
            {stepsConfig.map((s, index) => (
                 <React.Fragment key={s.id}>
-                     <div className={`flex flex-col items-center text-center ${index <= currentStepIndex ? 'text-accent' : 'text-muted-foreground'}`}>
+                     <div className={`flex flex-col items-center text-center ${index <= currentStepIndex ? 'text-accent' : 'text-muted-foreground'} ${s.id === 'selection' && !isSeatMapEvent ? 'hidden' : ''}`}>
                         <div className={`h-8 w-8 rounded-full border-2 ${index <= currentStepIndex ? 'border-accent bg-accent text-accent-foreground' : 'border-muted'} flex items-center justify-center mb-1 font-medium text-sm`}>
                             {index < currentStepIndex ? <CheckCircle className="h-5 w-5" /> : index + 1}
                          </div>
                         <span className="text-xs sm:text-sm font-medium">{s.name}</span>
                     </div>
-                    {index < stepsConfig.length - 1 && (
+                    {index < stepsConfig.length - 1 && !(!isSeatMapEvent && (s.id === 'selection' || stepsConfig[index+1].id === 'selection')) && (
                         <Separator orientation="horizontal" className={`flex-grow mx-2 h-0.5 ${index < currentStepIndex ? 'bg-accent' : 'bg-border'}`} />
                     )}
                 </React.Fragment>
@@ -219,43 +294,100 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
 
       {/* Step Content */}
       <Card className="bg-card shadow-lg border border-border">
-        {step === 'details' && (
+
+         {step === 'selection' && isSeatMapEvent && (
+             <>
+                 <CardHeader>
+                     <CardTitle className="flex items-center gap-2"><Armchair className="h-6 w-6 text-primary"/> Select Your Seats</CardTitle>
+                     <CardDescription>Choose your desired seats from the interactive map below.</CardDescription>
+                 </CardHeader>
+                 <CardContent>
+                     {/* Interactive Seat Map Component */}
+                     <SeatSelectionMap
+                        eventId={eventId}
+                        seats={mockSeats} // Pass fetched seat data
+                        selectedSeats={selectedSeats}
+                        onSeatsSelected={handleSeatsSelected} // Callback when selection confirmed
+                     />
+                     {/* Display Summary of selected seats */}
+                      {selectedSeats.length > 0 && (
+                         <div className="mt-6 p-4 border rounded-md bg-secondary/30">
+                            <h4 className="font-semibold mb-2">Selected Seats ({selectedSeats.length}):</h4>
+                             <div className="flex flex-wrap gap-2">
+                                {selectedSeatDetails.map(seat => seat && (
+                                    <Badge key={seat.id} variant="outline" className="font-mono text-sm">
+                                        {seat.section ? `${seat.section}-` : ''}{seat.row}{seat.number}
+                                     </Badge>
+                                ))}
+                            </div>
+                         </div>
+                     )}
+                 </CardContent>
+                 <CardFooter>
+                     <Button
+                         onClick={() => handleSeatsSelected(selectedSeats)} // Confirm selection
+                         disabled={selectedSeats.length === 0 || isProcessing}
+                         className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
+                     >
+                         {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CheckCircle className="mr-2 h-4 w-4" />}
+                         {isProcessing ? 'Reserving Seats...' : `Confirm ${selectedSeats.length} Seat(s) & Proceed`}
+                     </Button>
+                 </CardFooter>
+             </>
+         )}
+
+        {(step === 'details') && (
           <>
             <CardHeader>
               <CardTitle className="flex items-center gap-2"><Ticket className="h-6 w-6 text-primary"/> Booking Summary & Details</CardTitle>
               <CardDescription>Review your selection and provide information for ticket delivery.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Event & Category Summary */}
+              {/* Event & Selection Summary */}
               <div className="p-4 border rounded-md bg-secondary/50 border-border">
                 <h3 className="font-semibold text-primary">{event.name}</h3>
                 <p className="text-sm text-muted-foreground">{event.location} | {event.date.toLocaleDateString()}</p>
                 <Separator className="my-3" />
-                <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                        <Tag className="h-4 w-4 text-accent"/>
-                        <span className="font-medium">{category.name}</span>
+                {bookingType === 'seat' ? (
+                     <div>
+                        <p className="font-medium mb-1">Selected Seats ({selectedSeats.length}):</p>
+                         <div className="flex flex-wrap gap-1.5">
+                            {selectedSeatDetails.map(seat => seat && (
+                                <Badge key={seat.id} variant="secondary" className="font-mono text-xs">
+                                    {seat.section ? `${seat.section}-` : ''}{seat.row}{seat.number}
+                                 </Badge>
+                            ))}
+                        </div>
                     </div>
-                    <span className="font-semibold text-primary">₹{basePrice.toLocaleString('en-IN')} / ticket</span>
-                </div>
+                ) : category ? (
+                    <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                            <Tag className="h-4 w-4 text-accent"/>
+                            <span className="font-medium">{category.name}</span>
+                        </div>
+                        <span className="font-semibold text-primary">₹{basePricePerItem.toLocaleString('en-IN')} / ticket</span>
+                    </div>
+                ) : null}
               </div>
 
-              {/* Quantity */}
-              <div className="flex items-center space-x-4">
-                <Label htmlFor="quantity" className="min-w-[80px] shrink-0">Quantity</Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  min="1"
-                  max="10" // Set a reasonable max limit
-                  value={quantity}
-                  onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      if (val >= 1 && val <= 10) setQuantity(val);
-                  }}
-                  className="w-24 bg-background border-input"
-                />
-              </div>
+              {/* Quantity (Only for quantity-based booking) */}
+               {bookingType === 'quantity' && (
+                  <div className="flex items-center space-x-4">
+                    <Label htmlFor="quantity" className="min-w-[80px] shrink-0">Quantity</Label>
+                    <Input
+                      id="quantity"
+                      type="number"
+                      min="1"
+                      max="10" // Set a reasonable max limit
+                      value={quantity}
+                      onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (val >= 1 && val <= 10) setQuantity(val);
+                      }}
+                      className="w-24 bg-background border-input"
+                    />
+                  </div>
+                )}
 
               {/* Discount Code */}
                <div className="flex items-center space-x-2">
@@ -313,7 +445,7 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
               {/* Price Summary */}
               <Separator />
               <div className="space-y-2 text-right bg-secondary/30 p-4 rounded-md border border-border">
-                <p className="text-muted-foreground flex justify-between">Subtotal ({quantity} tickets): <span className="font-medium text-primary">₹{subtotal.toLocaleString('en-IN')}</span></p>
+                <p className="text-muted-foreground flex justify-between">Subtotal ({quantityOrSeats} {bookingType === 'seat' ? 'seat' : 'ticket'}{quantityOrSeats > 1 ? 's' : ''}): <span className="font-medium text-primary">₹{subtotal.toLocaleString('en-IN')}</span></p>
                 {discountApplied && (
                   <p className="text-green-600 flex justify-between">Discount: <span className="font-medium">- ₹{calculatedDiscount.toLocaleString('en-IN')}</span></p>
                 )}
@@ -321,8 +453,14 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
                 <p className="text-xl font-bold text-primary flex justify-between">Total Amount: <span>₹{totalPrice.toLocaleString('en-IN')}</span></p>
               </div>
             </CardContent>
-            <CardFooter>
-              <Button onClick={handleProceedToPayment} disabled={isProcessing} className="w-full bg-accent text-accent-foreground hover:bg-accent/90 text-base py-3">
+            <CardFooter className="flex flex-col sm:flex-row gap-4">
+                {/* Back button goes to selection only if it's a seat map event */}
+                 {isSeatMapEvent && (
+                      <Button onClick={() => setStep('selection')} variant="outline" className="w-full sm:w-auto">
+                         <ArrowLeft className="mr-2 h-4 w-4"/> Back to Seat Selection
+                     </Button>
+                 )}
+              <Button onClick={handleProceedToPayment} disabled={isProcessing} className={`w-full ${isSeatMapEvent ? 'sm:w-auto flex-grow' : ''} bg-accent text-accent-foreground hover:bg-accent/90 text-base py-3`}>
                 {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CreditCard className="mr-2 h-5 w-5" />}
                 {isProcessing ? 'Saving Details...' : `Proceed to Pay ₹${totalPrice.toLocaleString('en-IN')}`}
               </Button>
@@ -377,7 +515,11 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
                 <CardContent className="space-y-6">
                     <div className="bg-secondary/50 border border-border rounded-md p-4 text-sm">
                          <p className="text-muted-foreground mb-1">You are booking:</p>
-                        <p className="font-medium text-primary">{quantity} x {category.name} for {event.name}</p>
+                         {bookingType === 'seat' ? (
+                              <p className="font-medium text-primary">{selectedSeats.length} seat(s) for {event.name}</p>
+                         ) : category ? (
+                             <p className="font-medium text-primary">{quantity} x {category.name} for {event.name}</p>
+                         ) : null}
                         <p className="font-bold text-primary mt-1">Total Amount Paid: ₹{totalPrice.toLocaleString('en-IN')}</p>
                     </div>
                     <div className="space-y-1.5">
@@ -417,10 +559,24 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
                 <CardContent className="text-center space-y-5">
                      <Separator />
                      <div className="bg-secondary/50 border border-border rounded-md p-4 text-sm space-y-2">
+                         {bookingType === 'seat' ? (
+                            <p className="text-muted-foreground">Seats: <strong className="text-primary">{selectedSeats.length} seat(s)</strong></p>
+                         ) : category ? (
+                            <p className="text-muted-foreground">Tickets: <strong className="text-primary">{quantity} x {category.name}</strong></p>
+                         ) : null}
                         <p className="text-muted-foreground">Event: <strong className="text-primary">{event.name}</strong></p>
-                        <p className="text-muted-foreground">Tickets: <strong className="text-primary">{quantity} x {category.name}</strong></p>
                         <p className="text-muted-foreground">Total Paid: <strong className="text-primary">₹{totalPrice.toLocaleString('en-IN')}</strong></p>
                         <p className="text-muted-foreground">Booking ID: <Badge variant="outline" className="font-mono">BKNG-{eventId.slice(-3)}-{Date.now().toString().slice(-5)}</Badge> (Example)</p>
+                         {selectedSeats.length > 0 && (
+                             <div className="flex flex-wrap gap-1.5 justify-center pt-1">
+                                 <span className="text-xs text-muted-foreground mr-1">Seats:</span>
+                                {selectedSeatDetails.map(seat => seat && (
+                                    <Badge key={seat.id} variant="secondary" className="font-mono text-xs">
+                                        {seat.section ? `${seat.section}-` : ''}{seat.row}{seat.number}
+                                    </Badge>
+                                ))}
+                             </div>
+                         )}
                      </div>
                      <p className="text-muted-foreground">
                          Verification usually takes <strong>a few minutes to a few hours</strong>, depending on banking systems.

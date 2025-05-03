@@ -17,7 +17,7 @@ import { prisma } from '@/lib/prisma';
 // Import routes
 import authRoutes from './routes/auth'; // Import auth routes
 import eventRoutes from './routes/events'; // Import event routes
-// import bookingRoutes from './routes/bookings'; // Keep for later
+import bookingRoutes from './routes/bookings'; // Import booking routes
 // import adminRoutes from './routes/admin'; // Keep for later
 
 // --- Swagger Setup (Keep existing setup) ---
@@ -75,8 +75,8 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 // API Routes
 app.use('/api/auth', authRoutes); // Mount auth routes
-app.use('/api/events', eventRoutes); // Mount event routes
-// app.use('/api/bookings', bookingRoutes); // Uncomment when ready
+app.use('/api/events', eventRoutes); // Mount event routes (includes seat routes now)
+app.use('/api/bookings', bookingRoutes); // Mount booking routes
 // app.use('/api/admin', adminRoutes); // Uncomment when ready
 
 // Centralized Error Handling Middleware
@@ -84,8 +84,19 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error(`[ERROR] ${err.stack}`);
   // Basic error handling - expand as needed
   // Add handling for specific Prisma errors if needed (e.g., unique constraint)
-  // if (err instanceof Prisma.PrismaClientKnownRequestError) { ... }
+   if (err instanceof Prisma.PrismaClientKnownRequestError) {
+       // Handle specific Prisma errors, e.g., P2002 for unique constraint
+       if (err.code === 'P2002') {
+          return res.status(409).json({ message: `Conflict: A record with the same unique value already exists.`, field: err.meta?.target });
+       }
+       // P2025: Record to update/delete not found
+       if (err.code === 'P2025') {
+            return res.status(404).json({ message: `Resource not found. ${err.meta?.cause || ''}` });
+       }
+       // Add other Prisma error codes as needed
+   }
 
+  // Fallback for generic errors
   res.status(500).json({ message: 'Internal Server Error', error: err.message }); // Avoid sending stack in production
 });
 
@@ -101,10 +112,21 @@ async function startServer() {
     await prisma.$connect();
     console.log('Database connected successfully.');
 
+    // Start background job for releasing expired seat reservations (basic example)
+    // IMPORTANT: Use a proper scheduler (e.g., node-cron) or external service in production
+    setInterval(async () => {
+        try {
+            await seatService.releaseExpiredReservations();
+        } catch (error) {
+            console.error("Error in background job releasing expired seats:", error);
+        }
+    }, 1 * 60 * 1000); // Run every 1 minute
+
     app.listen(port, () => {
       console.log(`Backend server listening on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log('Required ENV VARS: DATABASE_URL, PORT, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET, ACCESS_TOKEN_EXPIRATION, REFRESH_TOKEN_EXPIRATION');
+      console.log(`Seat Reservation Timeout: ${RESERVATION_TIMEOUT_MINUTES} minutes`);
     });
   } catch (error) {
     console.error('Failed to connect to the database:', error);
@@ -117,6 +139,8 @@ async function startServer() {
              await prisma.$disconnect();
              console.log('Database connection closed.');
              // Add any other cleanup tasks here
+             // Clear intervals if needed
+             // clearInterval(backgroundJobIntervalId);
          } catch (e) {
             console.error('Error during shutdown:', e);
          } finally {
@@ -128,6 +152,10 @@ async function startServer() {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
   }
 }
+
+// Import seat service here for background job
+import * as seatService from './services/seat.service';
+const RESERVATION_TIMEOUT_MINUTES = parseInt(process.env.SEAT_RESERVATION_TIMEOUT_MINUTES || '15', 10);
 
 startServer();
 
