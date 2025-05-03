@@ -49,7 +49,7 @@ export const CreateEventSchema = z.object({
     category: z.string().optional(), // Added category field
     date: z.string().datetime({ message: 'Invalid date-time format (ISO 8601 expected)' }), // Expect ISO string like "2024-12-31T19:00:00.000Z"
     location: z.string().min(1, { message: 'Event location is required' }),
-    imageUrl: z.string().url({ message: 'Invalid image URL' }).optional(),
+    imageUrl: z.string().url({ message: 'Invalid image URL' }).optional().or(z.literal('')).nullable(), // Allow empty or null
     status: z.nativeEnum(EventStatus).optional(), // Defaults to DRAFT in service
     ticketCategories: z.array(TicketCategoryInputSchema)
                       .min(1, { message: 'At least one ticket category is required' }),
@@ -59,7 +59,7 @@ export type CreateEventInput = z.infer<typeof CreateEventSchema>['body'];
 
 export const UpdateEventSchema = z.object({
   params: z.object({
-      eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+      eventId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid event ID format' }), // MongoDB ObjectId check
   }),
   body: z.object({
     title: z.string().min(1).optional(),
@@ -80,20 +80,20 @@ export type UpdateEventParams = z.infer<typeof UpdateEventSchema>['params'];
 
 export const GetEventSchema = z.object({
     params: z.object({
-        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+        eventId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid event ID format' }),
     }),
 });
 export type GetEventParams = z.infer<typeof GetEventSchema>['params'];
 
 export const DeleteEventSchema = z.object({
     params: z.object({
-        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+        eventId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid event ID format' }),
     }),
 });
 export type DeleteEventParams = z.infer<typeof DeleteEventSchema>['params'];
 
 // Schema for List Events Query Parameters
-export const ListEventsSchema = z.object({
+export const listEventsSchema = z.object({ // Renamed for frontend usage consistency
     query: z.object({
         q: z.string().optional(), // Search query
         category: z.string().optional(), // Filter by category
@@ -107,13 +107,13 @@ export const ListEventsSchema = z.object({
         limit: z.coerce.number().int().min(1).max(100).default(10).optional(), // Pagination limit
     }),
 });
-export type ListEventsQuery = z.infer<typeof ListEventsSchema>['query'];
+export type ListEventsQuery = z.infer<typeof listEventsSchema>['query'];
 
 
 // ========== Seat Schemas ==========
 
 // Schema for defining a single seat in the layout editor
-const SeatDefinitionSchema = z.object({
+export const SeatDefinitionSchema = z.object({ // Exported for use in updateSeatLayout
     row: z.string().min(1, { message: 'Row identifier is required (e.g., A)' }),
     number: z.coerce.number().int().positive({ message: 'Seat number must be a positive integer' }),
     section: z.string().optional().describe('Optional section name (e.g., North Stand)'),
@@ -125,7 +125,7 @@ export type SeatDefinition = z.infer<typeof SeatDefinitionSchema>;
 // Schema for updating the entire seat layout for an event (Organizer action)
 export const UpdateSeatLayoutSchema = z.object({
     params: z.object({
-        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+        eventId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid event ID format' }),
     }),
     body: z.object({
         seats: z.array(SeatDefinitionSchema).min(1, { message: 'At least one seat definition is required' }),
@@ -137,10 +137,10 @@ export type UpdateSeatLayoutParams = z.infer<typeof UpdateSeatLayoutSchema>['par
 // Schema for reserving seats (User action during checkout)
 export const ReserveSeatsSchema = z.object({
     params: z.object({
-        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+        eventId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid event ID format' }),
     }),
     body: z.object({
-        seatIds: z.array(z.string().cuid({ message: 'Invalid seat ID format' })).min(1, { message: 'At least one seat ID is required' }),
+        seatIds: z.array(z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid seat ID format' })).min(1, { message: 'At least one seat ID is required' }),
         // reservationId: z.string().uuid().optional(), // Optional ID to group reservations
     }),
 });
@@ -150,10 +150,10 @@ export type ReserveSeatsParams = z.infer<typeof ReserveSeatsSchema>['params'];
 // Schema for releasing reserved seats (e.g., on timeout or booking cancellation)
 export const ReleaseSeatsSchema = z.object({
     params: z.object({
-        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+        eventId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid event ID format' }),
     }),
     body: z.object({
-        seatIds: z.array(z.string().cuid({ message: 'Invalid seat ID format' })).min(1, { message: 'At least one seat ID is required' }),
+        seatIds: z.array(z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid seat ID format' })).min(1, { message: 'At least one seat ID is required' }),
         // reservationId: z.string().uuid().optional(), // Match reservation ID if used
     }),
 });
@@ -164,7 +164,7 @@ export type ReleaseSeatsParams = z.infer<typeof ReleaseSeatsSchema>['params'];
 // Schema for getting seat map for an event (Public or authenticated user)
 export const GetSeatMapSchema = z.object({
     params: z.object({
-        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
+        eventId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid event ID format' }),
     }),
     query: z.object({
         // Optional query params for filtering (e.g., section)
@@ -180,12 +180,12 @@ export type GetSeatMapQuery = z.infer<typeof GetSeatMapSchema>['query'];
 
 export const CreateBookingSchema = z.object({
   body: z.object({
-    eventId: z.string().cuid({ message: 'Invalid event ID format' }),
-    quantity: z.number().int().positive({ message: 'Quantity must be a positive integer' }).optional(), // Make optional if using seats
-    seatIds: z.array(z.string().cuid()).optional().describe('IDs of the seats being booked'), // Add seatIds
-    deliveryName: z.string().min(1, {message: "Delivery name is required"}).optional(), // Make optional if collected later
-    deliveryEmail: z.string().email({message: "Invalid delivery email"}).optional(),
-    deliveryPhone: z.string().min(10, {message: "Invalid phone number"}).optional(), // Basic length check
+    eventId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid event ID format' }),
+    quantity: z.coerce.number().int().positive({ message: 'Quantity must be a positive integer' }).optional(), // Make optional if using seats
+    seatIds: z.array(z.string().refine((val) => /^[a-f\d]{24}$/i.test(val))).optional().describe('IDs of the seats being booked'), // Add seatIds
+    deliveryName: z.string().min(1, {message: "Delivery name is required"}).optional(), // Now optional at creation
+    deliveryEmail: z.string().email({message: "Invalid delivery email"}).optional(), // Now optional
+    deliveryPhone: z.string().min(10, {message: "Invalid phone number"}).optional(), // Basic length check, now optional
   }).refine(data => data.quantity || (data.seatIds && data.seatIds.length > 0), {
       message: "Either quantity or seatIds must be provided",
       path: ["quantity", "seatIds"], // Indicate which fields are involved
@@ -196,7 +196,7 @@ export type CreateBookingInput = z.infer<typeof CreateBookingSchema>['body'];
 
 export const SubmitUtrSchema = z.object({
     params: z.object({
-        bookingId: z.string().cuid({message: 'Invalid booking ID format'}),
+        bookingId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid booking ID format' }),
     }),
     body: z.object({
         utr: z.string().min(12, {message: 'UTR must be at least 12 characters'}).max(22, {message: 'UTR cannot exceed 22 characters'}),
@@ -208,7 +208,7 @@ export type SubmitUtrInput = z.infer<typeof SubmitUtrSchema>['body'];
 
 export const VerifyPaymentSchema = z.object({
     params: z.object({
-        bookingId: z.string().cuid({message: 'Invalid booking ID format'}),
+        bookingId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid booking ID format' }),
     }),
     body: z.object({
         approve: z.boolean(), // True to approve, False to reject
@@ -220,7 +220,7 @@ export type VerifyPaymentInput = z.infer<typeof VerifyPaymentSchema>['body'];
 
 export const GetBookingSchema = z.object({
     params: z.object({
-        bookingId: z.string().cuid({message: 'Invalid booking ID format'}),
+        bookingId: z.string().refine((val) => /^[a-f\d]{24}$/i.test(val), { message: 'Invalid booking ID format' }),
     }),
 });
 export type GetBookingParams = z.infer<typeof GetBookingSchema>['params'];

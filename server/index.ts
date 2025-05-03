@@ -3,6 +3,7 @@ import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
+import { Prisma } from '@prisma/client'; // Import Prisma types
 
 // Load environment variables based on NODE_ENV
 const envPath = process.env.NODE_ENV === 'production'
@@ -19,6 +20,11 @@ import authRoutes from './routes/auth'; // Import auth routes
 import eventRoutes from './routes/events'; // Import event routes
 import bookingRoutes from './routes/bookings'; // Import booking routes
 // import adminRoutes from './routes/admin'; // Keep for later
+
+// Import services for background jobs
+import * as seatService from './services/seat.service';
+import * as bookingService from './services/booking.service';
+
 
 // --- Swagger Setup (Keep existing setup) ---
 import swaggerUi from 'swagger-ui-express';
@@ -44,6 +50,9 @@ try {
 
 const app: Express = express();
 const port = process.env.PORT || 3001; // Backend runs on a different port
+const RESERVATION_TIMEOUT_MINUTES = parseInt(process.env.SEAT_RESERVATION_TIMEOUT_MINUTES || '15', 10);
+const BOOKING_TIMEOUT_MINUTES = parseInt(process.env.BOOKING_TIMEOUT_MINUTES || '15', 10);
+
 
 // Middleware
 app.use(cors()); // Enable CORS for all origins (adjust in production)
@@ -87,6 +96,10 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
    if (err instanceof Prisma.PrismaClientKnownRequestError) {
        // Handle specific Prisma errors, e.g., P2002 for unique constraint
        if (err.code === 'P2002') {
+          // Check if it's the UTR constraint
+           if (err.meta?.target === 'Booking_utr_key') {
+                return res.status(409).json({ message: `Conflict: This UTR number has already been used.` });
+           }
           return res.status(409).json({ message: `Conflict: A record with the same unique value already exists.`, field: err.meta?.target });
        }
        // P2025: Record to update/delete not found
@@ -95,6 +108,17 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
        }
        // Add other Prisma error codes as needed
    }
+
+    // Handle custom errors thrown by services
+     if (err.message.includes('not found') || err.message.includes('Invalid') || err.message.includes('Forbidden') || err.message.includes('Cannot') || err.message.includes('Insufficient') || err.message.includes('Failed to') || err.message.includes('already been used')) {
+        let statusCode = 400; // Default bad request
+        if (err.message.includes('not found')) statusCode = 404;
+        if (err.message.includes('Forbidden')) statusCode = 403;
+        if (err.message.includes('Unauthorized')) statusCode = 401;
+        if (err.message.includes('already been used')) statusCode = 409; // Conflict for unique constraint like UTR
+        return res.status(statusCode).json({ message: err.message });
+    }
+
 
   // Fallback for generic errors
   res.status(500).json({ message: 'Internal Server Error', error: err.message }); // Avoid sending stack in production
@@ -106,27 +130,33 @@ app.use('/api/*', (req: Request, res: Response) => {
 });
 
 
+let backgroundJobIntervalId: NodeJS.Timeout | null = null;
+
 async function startServer() {
   try {
     // Test database connection using Prisma
     await prisma.$connect();
     console.log('Database connected successfully.');
 
-    // Start background job for releasing expired seat reservations (basic example)
+    // Start background job for releasing expired reservations/bookings
     // IMPORTANT: Use a proper scheduler (e.g., node-cron) or external service in production
-    setInterval(async () => {
+    const backgroundJobInterval = 1 * 60 * 1000; // Run every 1 minute
+    backgroundJobIntervalId = setInterval(async () => {
         try {
-            await seatService.releaseExpiredReservations();
+            await bookingService.runScheduledJobs(); // Run all scheduled jobs defined in booking service
         } catch (error) {
-            console.error("Error in background job releasing expired seats:", error);
+            console.error("Error in background job runner:", error);
         }
-    }, 1 * 60 * 1000); // Run every 1 minute
+    }, backgroundJobInterval);
+    console.log(`Background job runner started. Interval: ${backgroundJobInterval / 1000} seconds.`);
+
 
     app.listen(port, () => {
       console.log(`Backend server listening on port ${port}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log('Required ENV VARS: DATABASE_URL, PORT, ACCESS_TOKEN_SECRET, REFRESH_TOKEN_SECRET, ACCESS_TOKEN_EXPIRATION, REFRESH_TOKEN_EXPIRATION');
       console.log(`Seat Reservation Timeout: ${RESERVATION_TIMEOUT_MINUTES} minutes`);
+      console.log(`Booking Timeout: ${BOOKING_TIMEOUT_MINUTES} minutes`);
     });
   } catch (error) {
     console.error('Failed to connect to the database:', error);
@@ -135,12 +165,15 @@ async function startServer() {
     // Graceful shutdown
     const shutdown = async (signal: string) => {
          console.log(`${signal} received. Shutting down server...`);
+         // Clear intervals
+         if (backgroundJobIntervalId) {
+            clearInterval(backgroundJobIntervalId);
+            console.log('Background job runner stopped.');
+         }
          try {
              await prisma.$disconnect();
              console.log('Database connection closed.');
              // Add any other cleanup tasks here
-             // Clear intervals if needed
-             // clearInterval(backgroundJobIntervalId);
          } catch (e) {
             console.error('Error during shutdown:', e);
          } finally {
@@ -153,9 +186,6 @@ async function startServer() {
   }
 }
 
-// Import seat service here for background job
-import * as seatService from './services/seat.service';
-const RESERVATION_TIMEOUT_MINUTES = parseInt(process.env.SEAT_RESERVATION_TIMEOUT_MINUTES || '15', 10);
 
 startServer();
 

@@ -59,6 +59,15 @@ const getRefreshToken = (): string | null => {
    return typeof window !== 'undefined' ? localStorage.getItem('refreshToken') : null;
 };
 
+// Function to read cookie
+const getCookie = (name: string): string | null => {
+    if (typeof document === 'undefined') return null;
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
+    return null;
+};
+
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -78,14 +87,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Function to read cookie
-    const getCookie = (name: string): string | null => {
-      if (typeof document === 'undefined') return null;
-      const value = `; ${document.cookie}`;
-      const parts = value.split(`; ${name}=`);
-      if (parts.length === 2) return parts.pop()?.split(';').shift() || null;
-      return null;
-    };
 
   // Check authentication status on mount and potentially refresh token
   useEffect(() => {
@@ -137,7 +138,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     checkAuthStatus();
      // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only once on mount
+  }, []); // Run only once on mount, fetchUserProfile is stable
 
   const login = async (credentials: LoginFormValues): Promise<boolean> => {
     setIsLoading(true);
@@ -201,7 +202,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAuthenticated = !!user; // User is authenticated if user object is not null
 
-  const value = {
+  const value: AuthContextType = { // Explicitly type the value object
     user,
     isLoading,
     isAuthenticated,

@@ -12,13 +12,17 @@ export const createBooking = async (req: Request<object, object, CreateBookingIn
   const userId = req.user?.userId; // Get user ID if authenticated
 
   try {
+    // Pass full validated body (including optional delivery details) to service
     const booking = await bookingService.createBooking(req.body, userId);
     res.status(201).json(booking);
   } catch (error: any) {
     console.error('Create booking error:', error);
-     if (error.message.includes('Insufficient tickets') || error.message.includes('not found') || error.message.includes('not currently available')) {
+     if (error.message.includes('Insufficient tickets') || error.message.includes('not found') || error.message.includes('not currently available') || error.message.includes('not currently reserved')) {
         return res.status(400).json({ message: error.message });
     }
+     if (error.message.includes('Failed to reserve all seats')) { // Specific error from reservation service
+         return res.status(409).json({ message: error.message }); // 409 Conflict
+     }
     res.status(500).json({ message: 'Internal Server Error' });
   }
 };
@@ -140,3 +144,6 @@ export const getAllBookings = async (req: Request, res: Response) => {
         res.status(500).json({ message: 'Internal Server Error' });
     }
 };
+
+// TODO: Add controller function for updating delivery details
+// export const updateDeliveryDetails = async (req: Request, res: Response) => { ... };

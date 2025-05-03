@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter, useParams } from 'next/navigation'; // Import useParams
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,17 +13,21 @@ import Link from 'next/link';
 import { useToast } from '@/hooks/use-toast'; // Import useToast
 import { Badge } from '@/components/ui/badge'; // Import Badge
 import SeatSelectionMap from '@/components/SeatSelectionMap'; // Import the Seat Map component
+import { useQuery } from '@tanstack/react-query';
+import { getEventById } from '@/services/eventService'; // Import service
+import { getSeatMapForEvent, reserveSeats } from '@/services/seatEditorService'; // Import seat services
+import type { Event as EventType, Seat as SeatType, TicketCategory as TicketCategoryType } from '@prisma/client';
+import { useAuth } from '@/hooks/useAuth'; // Import useAuth
 
-// Mock data - Replace with actual fetching
-const mockEvent = {
-  id: '1',
-  name: 'IPL Finals 2024',
-  date: new Date(2024, 10, 26, 19, 30),
-  location: 'Wankhede Stadium, Mumbai',
-  hasSeatMap: true, // Indicate if the event uses a seat map
-};
+// Mock data - Replace with actual fetching (category mock is still used if needed)
+// const mockEvent = {
+//   id: '1',
+//   name: 'IPL Finals 2024',
+//   date: new Date(2024, 10, 26, 19, 30),
+//   location: 'Wankhede Stadium, Mumbai',
+//   hasSeatMap: true, // Indicate if the event uses a seat map
+// };
 
-// Assume categories might apply even with seat maps (e.g., pricing tiers based on section)
 const mockCategories: { [key: string]: { name: string; price: number } } = {
   'cat1': { name: 'General Admission (Upper Tier)', price: 1500 },
   'cat2': { name: 'Lower Stand - East Wing', price: 3000 },
@@ -32,35 +36,44 @@ const mockCategories: { [key: string]: { name: string; price: number } } = {
 };
 
 // Mock seat data - replace with actual fetched data
-const mockSeats = [
-    { id: 's1', row: 'A', number: 1, section: 'North', status: 'AVAILABLE', price: 3000 },
-    { id: 's2', row: 'A', number: 2, section: 'North', status: 'AVAILABLE', price: 3000 },
-    { id: 's3', row: 'A', number: 3, section: 'North', status: 'BOOKED', price: 3000 },
-    { id: 's4', row: 'B', number: 1, section: 'North', status: 'AVAILABLE', price: 3000 },
-    { id: 's5', row: 'B', number: 2, section: 'North', status: 'RESERVED', price: 3000 },
-    { id: 's10', row: 'C', number: 10, section: 'East', status: 'AVAILABLE', price: 1500 },
-    { id: 's11', row: 'C', number: 11, section: 'East', status: 'AVAILABLE', price: 1500 },
-];
+// const mockSeats = [
+//     { id: 's1', row: 'A', number: 1, section: 'North', status: 'AVAILABLE', price: 3000 },
+//     { id: 's2', row: 'A', number: 2, section: 'North', status: 'AVAILABLE', price: 3000 },
+//     { id: 's3', row: 'A', number: 3, section: 'North', status: 'BOOKED', price: 3000 },
+//     { id: 's4', row: 'B', number: 1, section: 'North', status: 'AVAILABLE', price: 3000 },
+//     { id: 's5', row: 'B', number: 2, section: 'North', status: 'RESERVED', price: 3000 },
+//     { id: 's10', row: 'C', number: 10, section: 'East', status: 'AVAILABLE', price: 1500 },
+//     { id: 's11', row: 'C', number: 11, section: 'East', status: 'AVAILABLE', price: 1500 },
+// ];
 
 const MOCK_QR_CODE_URL = 'https://picsum.photos/250/250?random=qr'; // Placeholder QR code
 const MOCK_UPI_ID = 'eventia-ipl@axisbank'; // Placeholder UPI ID
 
 type CheckoutStep = 'selection' | 'details' | 'payment' | 'verification' | 'confirmation';
 
-const stepsConfig: { id: CheckoutStep; name: string }[] = [
-    { id: 'selection', name: 'Select Seats/Tickets' },
-    { id: 'details', name: 'Booking Details' },
-    { id: 'payment', name: 'Make Payment' },
-    { id: 'verification', name: 'Verify Payment' },
-    { id: 'confirmation', name: 'Confirmation' },
+const stepsConfig: { id: CheckoutStep; name: string; icon: React.ElementType }[] = [
+    { id: 'selection', name: 'Select', icon: Armchair },
+    { id: 'details', name: 'Details', icon: User },
+    { id: 'payment', name: 'Payment', icon: CreditCard },
+    { id: 'verification', name: 'Verify', icon: Upload },
+    { id: 'confirmation', name: 'Confirm', icon: CheckCircle },
 ];
 
-export default function CheckoutPage({ params }: { params: { eventId: string } }) {
+interface EventResponse extends EventType {
+    ticketCategories: TicketCategoryType[];
+    organizer: { id: string; name: string | null; email: string };
+}
+
+export default function CheckoutPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
+  const params = useParams(); // Use useParams to get eventId
   const { toast } = useToast(); // Initialize toast
+  const { getAccessToken } = useAuth(); // Get token function
+
+  const eventId = params.eventId as string;
   const categoryId = searchParams.get('category'); // For quantity-based booking
   const initialSeatIds = searchParams.get('seats')?.split(',') || []; // For seat-based booking
-  const { eventId } = params;
 
   const [step, setStep] = useState<CheckoutStep>('selection'); // Start at selection
   const [quantity, setQuantity] = useState(1);
@@ -73,19 +86,41 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
   const [utrNumber, setUtrNumber] = useState('');
   const [isProcessing, setIsProcessing] = useState(false); // For loading states
   const [validationErrors, setValidationErrors] = useState<{ [key: string]: string }>({}); // For form validation
+  const [bookingId, setBookingId] = useState<string | null>(null); // Store created booking ID
 
-  // Fetch event details (replace mock)
-  const event = mockEvent;
-  const isSeatMapEvent = event.hasSeatMap;
+  // Fetch event details using React Query
+   const { data: event, isLoading: isLoadingEvent, isError: isErrorEvent, error: errorEvent } = useQuery<EventResponse, Error>({
+       queryKey: ['event', eventId],
+       queryFn: () => getEventById(eventId),
+       enabled: !!eventId,
+       staleTime: 10 * 60 * 1000, // Cache event data for 10 mins
+   });
+
+   // Fetch seat map data (only if it's a seat map event)
+    const { data: seatsData, isLoading: isLoadingSeats, refetch: refetchSeats } = useQuery<SeatType[]>({
+       queryKey: ['seatMap', eventId, 'checkout'], // Unique key for checkout context
+       queryFn: () => getSeatMapForEvent(eventId, getAccessToken() ?? '', { showAll: true }), // Fetch all seats for display
+       enabled: !!eventId && !!event?.hasSeatMap, // Fetch only if event exists and has seat map
+       staleTime: 1 * 60 * 1000, // Shorter cache time for seat availability
+   });
+
+
+  const isSeatMapEvent = useMemo(() => event?.hasSeatMap === true, [event]); // Derive from fetched event data
 
   // Determine booking type based on context
   const bookingType = isSeatMapEvent ? 'seat' : 'quantity';
 
   // Selected category/price info
-  const category = categoryId && !isSeatMapEvent ? mockCategories[categoryId] : null; // Use category only for quantity booking
+   const category = useMemo(() => {
+      if (!isSeatMapEvent && categoryId && event?.ticketCategories) {
+          return event.ticketCategories.find(cat => cat.id === categoryId);
+      }
+      return null;
+  }, [isSeatMapEvent, categoryId, event]);
+
   const selectedSeatDetails = useMemo(() => {
-      return selectedSeats.map(id => mockSeats.find(s => s.id === id)).filter(Boolean);
-  }, [selectedSeats]);
+      return selectedSeats.map(id => seatsData?.find(s => s.id === id)).filter(Boolean) as SeatType[];
+  }, [selectedSeats, seatsData]);
 
   // Calculate totals
   let basePricePerItem = 0;
@@ -93,69 +128,91 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
 
   if (bookingType === 'seat') {
       // Price calculation for seat-based booking (sum of selected seats' prices)
-      // Needs refinement if prices vary significantly or based on categories linked to sections
-      basePricePerItem = selectedSeatDetails[0]?.price || 3000; // Example: use first seat's price or average
+      // TODO: Needs actual seat price data - assuming a flat rate or category price for now
+      basePricePerItem = 3000; // Placeholder - replace with actual seat price logic
+      totalPrice = selectedSeatDetails.reduce((sum, seat) => {
+          // Find the category price associated with the seat's section/type if available
+          // For now, using placeholder price
+          const price = category?.price || 3000; // Replace with actual logic
+          return sum + price;
+      }, 0);
       quantityOrSeats = selectedSeats.length;
+
   } else if (category) {
       // Price calculation for quantity-based booking
       basePricePerItem = category.price;
       quantityOrSeats = quantity;
+      totalPrice = basePricePerItem * quantityOrSeats;
+  } else {
+      totalPrice = 0; // Default if category/seats not determined
   }
 
-  const subtotal = basePricePerItem * quantityOrSeats;
+  const subtotal = totalPrice; // Base price is now calculated based on type
+
   let calculatedDiscount = 0;
   if (discountApplied && discountType) {
     calculatedDiscount = discountType === 'PERCENTAGE' ? subtotal * discountValue : discountValue;
     calculatedDiscount = Math.min(calculatedDiscount, subtotal);
   }
-  const totalPrice = subtotal - calculatedDiscount;
+  const finalTotalPrice = subtotal - calculatedDiscount;
 
-  // Initial setup and validation
-  useEffect(() => {
-    if (isSeatMapEvent) {
-        // If seat map event, but no seats selected initially, stay on selection step
-        if (initialSeatIds.length === 0) {
-            setStep('selection');
+
+  // Initial setup and validation effect
+   useEffect(() => {
+        // Don't proceed until event data is loaded
+        if (isLoadingEvent || !event) return;
+
+        if (isSeatMapEvent) {
+            // Seat map event logic
+            if (initialSeatIds.length === 0) {
+                setStep('selection'); // Stay on selection if no initial seats
+            } else {
+                 // TODO: Verify initialSeatIds are valid and available using seatsData when loaded
+                setSelectedSeats(initialSeatIds);
+                setStep('details'); // Tentatively move to details
+            }
         } else {
-            setSelectedSeats(initialSeatIds);
-             // TODO: Verify these seats are valid/available via API call
-             // If seats valid, move to details, otherwise back to selection
-            setStep('details'); // Assume valid for now
+            // Quantity-based booking logic
+            if (!categoryId || !category) {
+                console.error("Invalid or missing category ID for quantity booking.");
+                toast({
+                    title: "Error",
+                    description: "Invalid ticket category selected.",
+                    variant: "destructive",
+                });
+                 router.push(`/events/${eventId}`); // Redirect back to event page
+            } else {
+                setStep('details'); // Proceed directly to details if category is valid
+            }
         }
-    } else {
-        // Quantity-based booking
-        if (!categoryId || !mockCategories[categoryId]) {
-            console.error("Invalid category ID for quantity booking");
-            toast({
-                title: "Error",
-                description: "Invalid ticket category selected.",
-                variant: "destructive",
-            });
-            // Redirect or show error
-        } else {
-             setStep('details'); // Proceed directly to details if category is valid
-        }
-    }
-  }, [categoryId, eventId, toast, isSeatMapEvent, initialSeatIds]);
+    }, [event, isLoadingEvent, isSeatMapEvent, categoryId, category, initialSeatIds, toast, router, eventId]);
 
 
-  const handleSeatsSelected = (seatIds: string[]) => {
-     setSelectedSeats(seatIds);
-     // TODO: Call API to reserve these seats immediately
-     console.log("Seats selected, attempting reservation:", seatIds);
-     setIsProcessing(true);
-     // Simulate reservation API call
-     setTimeout(() => {
-         // On success:
-          toast({ title: "Seats Reserved", description: `Seats held for ${process.env.SEAT_RESERVATION_TIMEOUT_MINUTES || 15} minutes.` });
-          setStep('details');
-          setIsProcessing(false);
-         // On failure:
-         // toast({ title: "Reservation Failed", description: "Some seats could not be reserved.", variant: "destructive" });
-         // setSelectedSeats(previouslySelectedSeats); // Revert selection
-          //setIsProcessing(false);
-     }, 1000);
-  }
+    const handleSeatsSelected = async (seatIds: string[]) => {
+         setSelectedSeats(seatIds);
+         console.log("Seats selected, attempting reservation:", seatIds);
+         setIsProcessing(true);
+         const token = getAccessToken();
+         if (!token) {
+             toast({ title: "Authentication Required", description: "Please log in to reserve seats.", variant: "destructive" });
+             router.push('/login');
+             setIsProcessing(false);
+             return;
+         }
+
+         try {
+            await reserveSeats(eventId, seatIds, token);
+             toast({ title: "Seats Reserved", description: `Seats held for ${process.env.NEXT_PUBLIC_SEAT_RESERVATION_TIMEOUT_MINUTES || 15} minutes.` });
+             setStep('details');
+         } catch (error: any) {
+             toast({ title: "Reservation Failed", description: error.message || "Some seats could not be reserved.", variant: "destructive" });
+             // Optionally refetch seat map to show updated status
+             refetchSeats();
+             setSelectedSeats([]); // Clear selection on failure
+         } finally {
+             setIsProcessing(false);
+         }
+     }
 
   const validateDetails = () => {
      const errors: { [key: string]: string } = {};
@@ -175,7 +232,7 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
   }
 
    const handleApplyDiscount = () => {
-        // Simulate API call
+        // TODO: Implement actual discount API call
         console.log("Applying discount code:", discountCode);
         setIsProcessing(true);
         setDiscountApplied(false); // Reset first
@@ -206,31 +263,62 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
         }, 1000);
     };
 
-  const handleProceedToPayment = () => {
-     if (!validateDetails()) {
-         toast({
-             title: "Missing Information",
-             description: "Please fill in all required delivery details correctly.",
-             variant: "destructive",
-         });
-         return;
-     }
-    setIsProcessing(true);
-    // Simulate API call to create pending booking
-    console.log("Creating pending booking with details:", deliveryDetails, "Qty/Seats:", quantityOrSeats, "Seat IDs:", selectedSeats, "Total:", totalPrice);
-    setTimeout(() => {
-      setStep('payment');
-      setIsProcessing(false);
-       toast({ title: "Details Saved", description: "Proceed with payment." });
-    }, 800);
-  };
+    const handleProceedToPayment = async () => {
+         if (!validateDetails()) {
+             toast({
+                 title: "Missing Information",
+                 description: "Please fill in all required delivery details correctly.",
+                 variant: "destructive",
+             });
+             return;
+         }
+         setIsProcessing(true);
+         const token = getAccessToken();
+         // Create booking payload
+         const bookingData: any = {
+             eventId: eventId,
+             deliveryName: deliveryDetails.name,
+             deliveryEmail: deliveryDetails.email,
+             deliveryPhone: deliveryDetails.phone,
+             // Include other relevant data like discount info if needed by backend
+         };
+         if (isSeatMapEvent) {
+             bookingData.seatIds = selectedSeats;
+         } else {
+             bookingData.quantity = quantity;
+         }
+
+         console.log("Creating pending booking with data:", bookingData);
+
+         try {
+             // TODO: Replace with actual API call to create booking
+             // const response = await createBooking(bookingData, token);
+             // Simulate API call
+             await new Promise(res => setTimeout(res, 800));
+             const simulatedBookingId = `BK-${Date.now().toString().slice(-6)}`; // Example ID
+             setBookingId(simulatedBookingId);
+
+             setStep('payment');
+             toast({ title: "Details Saved", description: "Proceed with payment." });
+         } catch (error: any) {
+             toast({
+                 title: "Booking Creation Failed",
+                 description: error.message || "Could not initiate the booking.",
+                 variant: "destructive",
+             });
+         } finally {
+             setIsProcessing(false);
+         }
+     };
+
 
    const handlePaymentMade = () => {
+        // This step purely transitions the UI after user claims payment is done
         setStep('verification');
          toast({ title: "Payment Step", description: "Enter your UTR to verify the transaction." });
     };
 
-  const handleSubmitUtr = () => {
+  const handleSubmitUtr = async () => {
     if (!utrNumber || utrNumber.length < 10) { // Basic validation
         toast({
              title: "Invalid UTR",
@@ -239,31 +327,62 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
          });
         return;
     }
+     if (!bookingId) {
+         toast({ title: "Error", description: "Booking ID not found. Cannot submit UTR.", variant: "destructive" });
+         return;
+     }
     setIsProcessing(true);
-    console.log("Submitting UTR:", utrNumber);
-    // Simulate API call
-    setTimeout(() => {
-      setStep('confirmation');
-      setIsProcessing(false);
-      toast({ title: "UTR Submitted", description: "Your booking is now processing for verification." });
-      // Trigger backend process for admin verification
-    }, 1500);
+    console.log(`Submitting UTR ${utrNumber} for booking ${bookingId}`);
+
+     try {
+        // TODO: Replace with actual API call to submit UTR
+        // await submitUtr(bookingId, utrNumber, getAccessToken());
+        await new Promise(res => setTimeout(res, 1500)); // Simulate API call
+
+        setStep('confirmation');
+        toast({ title: "UTR Submitted", description: "Your booking is now processing for verification." });
+        // Trigger backend process for admin verification implicitly by status change
+     } catch (error: any) {
+         toast({
+             title: "UTR Submission Failed",
+             description: error.message || "Could not submit UTR.",
+             variant: "destructive",
+         });
+     } finally {
+         setIsProcessing(false);
+     }
   };
 
-  // Loading state while determining initial setup
-  if ((!isSeatMapEvent && !category) || !event) {
-    return (
-         <div className="container mx-auto py-16 px-4 text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground">Loading booking details...</p>
-            <Link href="/events" className="mt-4 inline-block">
-                <Button variant="outline">Back to Events</Button>
-            </Link>
-        </div>
-    );
-  }
+  // Combined Loading state
+   if (isLoadingEvent || (isSeatMapEvent && isLoadingSeats)) {
+       return (
+           <div className="container mx-auto py-16 px-4 text-center">
+               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-4" />
+               <p className="text-muted-foreground">Loading booking details...</p>
+           </div>
+       );
+   }
+
+    // Error state for event loading
+    if (isErrorEvent || !event) {
+        return (
+            <div className="container mx-auto py-16 px-4 text-center">
+                <XCircle className="h-10 w-10 text-destructive mx-auto mb-4" />
+                <h2 className="text-xl font-semibold text-destructive">Error Loading Event</h2>
+                <p className="text-muted-foreground mb-4">{errorEvent?.message || "Could not load event details."}</p>
+                <Link href="/events">
+                    <Button variant="outline">Back to Events</Button>
+                </Link>
+            </div>
+        );
+    }
+
 
   const currentStepIndex = stepsConfig.findIndex(s => s.id === step);
+   // Filter out selection step for quantity-based booking in the indicator
+   const visibleSteps = isSeatMapEvent ? stepsConfig : stepsConfig.filter(s => s.id !== 'selection');
+   const currentVisibleStepIndex = visibleSteps.findIndex(s => s.id === step);
+
 
   return (
     <div className="container mx-auto py-8 px-4 md:px-6 lg:px-8 max-w-4xl">
@@ -275,18 +394,18 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
       <h1 className="text-3xl font-bold text-primary mb-8">Checkout</h1>
 
       {/* Step Indicator */}
-       <div className="flex items-center justify-between mb-10 p-4 bg-muted/50 rounded-lg border border-border">
-           {stepsConfig.map((s, index) => (
+       <div className="flex items-start justify-between mb-10 p-4 bg-muted/50 rounded-lg border border-border">
+           {visibleSteps.map((s, index) => (
                 <React.Fragment key={s.id}>
-                     <div className={`flex flex-col items-center text-center ${index <= currentStepIndex ? 'text-accent' : 'text-muted-foreground'} ${s.id === 'selection' && !isSeatMapEvent ? 'hidden' : ''}`}>
-                        <div className={`h-8 w-8 rounded-full border-2 ${index <= currentStepIndex ? 'border-accent bg-accent text-accent-foreground' : 'border-muted'} flex items-center justify-center mb-1 font-medium text-sm`}>
-                            {index < currentStepIndex ? <CheckCircle className="h-5 w-5" /> : index + 1}
+                     <div className={`flex flex-col items-center text-center px-1 w-1/${visibleSteps.length} ${index <= currentVisibleStepIndex ? 'text-accent font-semibold' : 'text-muted-foreground'}`}>
+                        <div className={`h-10 w-10 rounded-full border-2 ${index <= currentVisibleStepIndex ? 'border-accent bg-accent text-accent-foreground' : 'border-muted bg-background'} flex items-center justify-center mb-1.5 text-xl`}>
+                            {index < currentVisibleStepIndex ? <CheckCircle className="h-6 w-6" /> : <s.icon className="h-5 w-5" />}
                          </div>
-                        <span className="text-xs sm:text-sm font-medium">{s.name}</span>
+                        <span className="text-xs sm:text-sm">{s.name}</span>
                     </div>
-                    {index < stepsConfig.length - 1 && !(!isSeatMapEvent && (s.id === 'selection' || stepsConfig[index+1].id === 'selection')) && (
-                        <Separator orientation="horizontal" className={`flex-grow mx-2 h-0.5 ${index < currentStepIndex ? 'bg-accent' : 'bg-border'}`} />
-                    )}
+                     {index < visibleSteps.length - 1 && (
+                        <Separator orientation="horizontal" className={`flex-grow mx-1 mt-5 h-0.5 ${index < currentVisibleStepIndex ? 'bg-accent' : 'bg-border'}`} />
+                     )}
                 </React.Fragment>
            ))}
        </div>
@@ -299,33 +418,23 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
              <>
                  <CardHeader>
                      <CardTitle className="flex items-center gap-2"><Armchair className="h-6 w-6 text-primary"/> Select Your Seats</CardTitle>
-                     <CardDescription>Choose your desired seats from the interactive map below.</CardDescription>
+                     <CardDescription>Choose your desired seats from the interactive map below. <span className="text-orange-600 font-medium">Orange seats are temporarily reserved by others.</span></CardDescription>
                  </CardHeader>
                  <CardContent>
-                     {/* Interactive Seat Map Component */}
-                     <SeatSelectionMap
-                        eventId={eventId}
-                        seats={mockSeats} // Pass fetched seat data
-                        selectedSeats={selectedSeats}
-                        onSeatsSelected={handleSeatsSelected} // Callback when selection confirmed
-                     />
-                     {/* Display Summary of selected seats */}
-                      {selectedSeats.length > 0 && (
-                         <div className="mt-6 p-4 border rounded-md bg-secondary/30">
-                            <h4 className="font-semibold mb-2">Selected Seats ({selectedSeats.length}):</h4>
-                             <div className="flex flex-wrap gap-2">
-                                {selectedSeatDetails.map(seat => seat && (
-                                    <Badge key={seat.id} variant="outline" className="font-mono text-sm">
-                                        {seat.section ? `${seat.section}-` : ''}{seat.row}{seat.number}
-                                     </Badge>
-                                ))}
-                            </div>
-                         </div>
-                     )}
+                    {seatsData && seatsData.length > 0 ? (
+                         <SeatSelectionMap
+                             eventId={eventId}
+                             seats={seatsData}
+                             selectedSeats={selectedSeats}
+                             onSeatsSelected={handleSeatsSelected} // Confirm button is now outside
+                         />
+                    ) : (
+                         <p className="text-center text-muted-foreground py-8">Seat map is currently unavailable.</p>
+                    )}
                  </CardContent>
                  <CardFooter>
-                     <Button
-                         onClick={() => handleSeatsSelected(selectedSeats)} // Confirm selection
+                      <Button
+                         onClick={() => handleSeatsSelected(selectedSeats)} // Confirm selection now triggers reservation
                          disabled={selectedSeats.length === 0 || isProcessing}
                          className="w-full bg-accent text-accent-foreground hover:bg-accent/90"
                      >
@@ -345,8 +454,8 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
             <CardContent className="space-y-6">
               {/* Event & Selection Summary */}
               <div className="p-4 border rounded-md bg-secondary/50 border-border">
-                <h3 className="font-semibold text-primary">{event.name}</h3>
-                <p className="text-sm text-muted-foreground">{event.location} | {event.date.toLocaleDateString()}</p>
+                <h3 className="font-semibold text-primary">{event.title}</h3>
+                <p className="text-sm text-muted-foreground">{event.location} | {new Date(event.date).toLocaleDateString()}</p>
                 <Separator className="my-3" />
                 {bookingType === 'seat' ? (
                      <div>
@@ -450,7 +559,7 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
                   <p className="text-green-600 flex justify-between">Discount: <span className="font-medium">- ₹{calculatedDiscount.toLocaleString('en-IN')}</span></p>
                 )}
                  <Separator className="my-1"/>
-                <p className="text-xl font-bold text-primary flex justify-between">Total Amount: <span>₹{totalPrice.toLocaleString('en-IN')}</span></p>
+                <p className="text-xl font-bold text-primary flex justify-between">Total Amount: <span>₹{finalTotalPrice.toLocaleString('en-IN')}</span></p>
               </div>
             </CardContent>
             <CardFooter className="flex flex-col sm:flex-row gap-4">
@@ -462,7 +571,7 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
                  )}
               <Button onClick={handleProceedToPayment} disabled={isProcessing} className={`w-full ${isSeatMapEvent ? 'sm:w-auto flex-grow' : ''} bg-accent text-accent-foreground hover:bg-accent/90 text-base py-3`}>
                 {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <CreditCard className="mr-2 h-5 w-5" />}
-                {isProcessing ? 'Saving Details...' : `Proceed to Pay ₹${totalPrice.toLocaleString('en-IN')}`}
+                {isProcessing ? 'Saving Details...' : `Proceed to Pay ₹${finalTotalPrice.toLocaleString('en-IN')}`}
               </Button>
             </CardFooter>
           </>
@@ -472,7 +581,7 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
              <>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2"><QrCode className="h-6 w-6 text-primary"/> Complete Payment via UPI</CardTitle>
-                    <CardDescription>Scan the QR code using your UPI app or use the UPI ID below to pay <strong className="text-primary">₹{totalPrice.toLocaleString('en-IN')}</strong>.</CardDescription>
+                    <CardDescription>Scan the QR code using your UPI app or use the UPI ID below to pay <strong className="text-primary">₹{finalTotalPrice.toLocaleString('en-IN')}</strong>.</CardDescription>
                 </CardHeader>
                 <CardContent className="flex flex-col items-center space-y-6">
                      <div className="p-4 border rounded-lg bg-background shadow-inner border-border text-center">
@@ -510,17 +619,17 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
              <>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2"><Upload className="h-6 w-6 text-primary"/> Verify Your Payment</CardTitle>
-                    <CardDescription>Please enter the <strong>UTR / UPI Transaction ID</strong> from your payment app to confirm your booking for ₹{totalPrice.toLocaleString('en-IN')}.</CardDescription>
+                    <CardDescription>Please enter the <strong>UTR / UPI Transaction ID</strong> from your payment app to confirm your booking for ₹{finalTotalPrice.toLocaleString('en-IN')}.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                     <div className="bg-secondary/50 border border-border rounded-md p-4 text-sm">
                          <p className="text-muted-foreground mb-1">You are booking:</p>
                          {bookingType === 'seat' ? (
-                              <p className="font-medium text-primary">{selectedSeats.length} seat(s) for {event.name}</p>
+                              <p className="font-medium text-primary">{selectedSeats.length} seat(s) for {event.title}</p>
                          ) : category ? (
-                             <p className="font-medium text-primary">{quantity} x {category.name} for {event.name}</p>
+                             <p className="font-medium text-primary">{quantity} x {category.name} for {event.title}</p>
                          ) : null}
-                        <p className="font-bold text-primary mt-1">Total Amount Paid: ₹{totalPrice.toLocaleString('en-IN')}</p>
+                        <p className="font-bold text-primary mt-1">Total Amount Paid: ₹{finalTotalPrice.toLocaleString('en-IN')}</p>
                     </div>
                     <div className="space-y-1.5">
                          <Label htmlFor="utr" className="text-base">UTR / UPI Transaction ID</Label>
@@ -564,9 +673,9 @@ export default function CheckoutPage({ params }: { params: { eventId: string } }
                          ) : category ? (
                             <p className="text-muted-foreground">Tickets: <strong className="text-primary">{quantity} x {category.name}</strong></p>
                          ) : null}
-                        <p className="text-muted-foreground">Event: <strong className="text-primary">{event.name}</strong></p>
-                        <p className="text-muted-foreground">Total Paid: <strong className="text-primary">₹{totalPrice.toLocaleString('en-IN')}</strong></p>
-                        <p className="text-muted-foreground">Booking ID: <Badge variant="outline" className="font-mono">BKNG-{eventId.slice(-3)}-{Date.now().toString().slice(-5)}</Badge> (Example)</p>
+                        <p className="text-muted-foreground">Event: <strong className="text-primary">{event.title}</strong></p>
+                        <p className="text-muted-foreground">Total Paid: <strong className="text-primary">₹{finalTotalPrice.toLocaleString('en-IN')}</strong></p>
+                        <p className="text-muted-foreground">Booking ID: <Badge variant="outline" className="font-mono">{bookingId || 'Pending...'}</Badge></p>
                          {selectedSeats.length > 0 && (
                              <div className="flex flex-wrap gap-1.5 justify-center pt-1">
                                  <span className="text-xs text-muted-foreground mr-1">Seats:</span>

@@ -25,5 +25,8 @@ router.post('/:bookingId/submit-utr', validateRequest(SubmitUtrSchema), bookingC
 // Requires Admin role. Needs validation for params and body.
 router.post('/:bookingId/verify-payment', authenticateToken, requireAdmin, validateRequest(VerifyPaymentSchema), bookingController.verifyPayment);
 
+// TODO: Add PUT/PATCH endpoint for updating delivery details if needed
+// router.patch('/:bookingId/delivery-details', authenticateToken, validateRequest(UpdateDeliveryDetailsSchema), bookingController.updateDeliveryDetails);
+
 
 export default router;
