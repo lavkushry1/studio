@@ -20,7 +20,7 @@ export const createUser = async (data: Pick<User, 'email' | 'password' | 'name'>
       email: data.email,
       password: hashedPassword,
       name: data.name,
-      role: data.role || UserRole.USER, // Default to USER role
+      role: data.role || UserRole.USER, // Default to USER role if not provided
     },
   });
 };
@@ -33,6 +33,7 @@ export const createUser = async (data: Pick<User, 'email' | 'password' | 'name'>
 export const findUserByEmail = async (email: string): Promise<User | null> => {
   return prisma.user.findUnique({
     where: { email },
+    // include: { organizedEvents: true } // Optionally include related events
   });
 };
 
@@ -44,5 +45,10 @@ export const findUserByEmail = async (email: string): Promise<User | null> => {
 export const findUserById = async (id: string): Promise<User | null> => {
     return prisma.user.findUnique({
         where: { id },
+         // include: { organizedEvents: true } // Optionally include related events
     });
 };
+
+// Potentially add functions to find users by role, update user profiles, etc.
+// export const findUsersByRole = async (role: UserRole): Promise<User[]> => { ... }
+// export const updateUser = async (id: string, data: Partial<User>): Promise<User> => { ... }

@@ -11,7 +11,7 @@ interface User {
   id: string;
   email: string;
   name?: string | null;
-  role: 'USER' | 'ADMIN';
+  role: 'USER' | 'ADMIN' | 'ORGANIZER'; // Added ORGANIZER
 }
 
 interface AuthContextType {
@@ -31,8 +31,11 @@ const storeTokens = (accessToken: string, refreshToken: string) => {
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
     // Also set as cookie for middleware access
-    document.cookie = `accessToken=${accessToken}; path=/; SameSite=Lax; Max-Age=900`; // Max-Age=15 minutes
-    document.cookie = `refreshToken=${refreshToken}; path=/; SameSite=Lax; Max-Age=604800`; // Max-Age=7 days
+    // Use environment variables for expiration times if possible
+    const accessTokenMaxAge = process.env.NEXT_PUBLIC_ACCESS_TOKEN_MAX_AGE || 900; // 15 minutes default
+    const refreshTokenMaxAge = process.env.NEXT_PUBLIC_REFRESH_TOKEN_MAX_AGE || 604800; // 7 days default
+    document.cookie = `accessToken=${accessToken}; path=/; SameSite=Lax; Max-Age=${accessTokenMaxAge}`;
+    document.cookie = `refreshToken=${refreshToken}; path=/; SameSite=Lax; Max-Age=${refreshTokenMaxAge}`;
   }
 };
 
@@ -41,8 +44,8 @@ const removeTokens = () => {
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
     // Also remove cookies
-    document.cookie = 'accessToken=; path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
-    document.cookie = 'refreshToken=; path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;';
+    document.cookie = 'accessToken=; path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax;';
+    document.cookie = 'refreshToken=; path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT; SameSite=Lax;';
   }
 };
 
@@ -66,8 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const profileData = await authService.getMe(token);
       return profileData;
-    } catch (error) {
-      console.error("Failed to fetch user profile:", error);
+    } catch (error: any) {
+      console.error("Failed to fetch user profile:", error.message);
       // Token might be expired or invalid
       // Don't remove tokens here, let the refresh logic handle it
       return null;
@@ -113,9 +116,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           console.log("Token refreshed successfully.");
           currentToken = newAccessToken;
           profileData = await fetchUserProfile(currentToken); // Fetch profile with new token
-        } catch (refreshError) {
-           console.error("Failed to refresh token:", refreshError);
-           removeTokens(); // Clear tokens if refresh fails
+        } catch (refreshError: any) {
+           console.error("Failed to refresh token:", refreshError.message);
+           // Check if error indicates invalid refresh token (e.g., 401)
+           if (refreshError?.message?.includes('401') || refreshError?.message?.toLowerCase().includes('invalid')) {
+               removeTokens(); // Clear tokens if refresh fails definitively
+           }
+           // Optionally, keep refresh token if error is temporary (network issue)?
         }
       } else if (!profileData && !refreshToken) {
           // If no profile, no access token, and no refresh token, definitely logged out
@@ -165,7 +172,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(null);
         removeTokens(); // Remove tokens from client (localStorage + cookies)
         toast({ title: 'Logged Out', description: 'You have been successfully logged out.' });
-        router.push('/'); // Redirect to home page after logout
+        // Use replace to prevent user from going back to the logged-in state
+        router.replace('/'); // Redirect to home page after logout
         setIsLoading(false);
     }
   };
@@ -177,7 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { user: registeredUser, accessToken, refreshToken } = await authService.register(userData);
       storeTokens(accessToken, refreshToken);
       setUser(registeredUser);
-      toast({ title: 'Registration Successful', description: `Welcome, ${registeredUser.name || registeredUser.email}!` });
+      toast({ title: 'Registration Successful', description: `Welcome, ${registeredUser.name || registeredUser.email}! You are now logged in.` });
       setIsLoading(false);
       return true;
     } catch (error: any) {

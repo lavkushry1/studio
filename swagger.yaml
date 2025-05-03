@@ -45,7 +45,7 @@ components:
           example: "John Doe"
         role:
           type: string
-          enum: [USER, ADMIN]
+          enum: [USER, ADMIN, ORGANIZER] # Added ORGANIZER
           example: USER
         createdAt:
           type: string
@@ -60,31 +60,40 @@ components:
         - createdAt
         - updatedAt
 
+    # ========== Event Schemas ==========
     Event:
       type: object
       properties:
         id:
           type: string
           format: cuid
+          example: "clxkr9a1b0001u0pqd4e5f6g7"
         title:
           type: string
+          example: "Summer Music Festival"
         description:
           type: string
+          example: "An amazing weekend of live music."
         date:
           type: string
           format: date-time
+          example: "2024-08-15T18:00:00.000Z"
         location:
           type: string
+          example: "City Park Amphitheater"
         imageUrl:
           type: string
           format: url
           nullable: true
+          example: "https://example.com/image.jpg"
         status:
           type: string
           enum: [DRAFT, PUBLISHED, CANCELLED]
+          example: PUBLISHED
         organizerId:
           type: string
           format: cuid
+          example: "clxjq1k2a0000u0pqc9z0h3v7"
         organizer: # Included from relation
           type: object
           properties:
@@ -124,18 +133,24 @@ components:
         id:
           type: string
           format: cuid
+          example: "clxkr9b2c0002u0pqe8f9g0h1"
         name:
           type: string
+          example: "General Admission"
         price:
           type: number
           format: float
+          example: 50.00
         totalQty:
           type: integer
+          example: 1000
         bookedQty:
           type: integer
+          example: 250
         eventId:
           type: string
           format: cuid
+          example: "clxkr9a1b0001u0pqd4e5f6g7"
         createdAt:
           type: string
           format: date-time
@@ -152,6 +167,7 @@ components:
         - createdAt
         - updatedAt
 
+    # ========== Booking Schema ==========
     Booking:
       type: object
       properties:
@@ -241,7 +257,7 @@ components:
           example: "Jane Doe"
         role:
           type: string
-          enum: [USER, ADMIN]
+          enum: [USER, ADMIN, ORGANIZER]
           example: USER
       required:
         - email
@@ -612,13 +628,13 @@ paths:
                     schema:
                       $ref: '#/components/schemas/GetMeResponse'
             '401':
-                description: Not authenticated
+                description: Not authenticated (Missing or invalid token)
                 content:
                     application/json:
                       schema:
                         $ref: '#/components/schemas/ErrorResponse'
             '403':
-                 description: Invalid or expired token
+                 description: Forbidden (Token invalid - though often presented as 401)
                  content:
                     application/json:
                       schema:
@@ -641,23 +657,65 @@ paths:
     get:
       summary: Retrieve a list of events
       tags: [Events]
+      security:
+          - bearerAuth: [] # Optional, allows checking role for filtering unpublished
       parameters:
         - in: query
           name: status
           schema:
             type: string
             enum: [DRAFT, PUBLISHED, CANCELLED]
-          description: Filter events by status
-        # Add other query params like date range, location, pagination (page, limit)
+          description: Filter events by status (only PUBLISHED visible to non-admins unless specified)
+        - in: query
+          name: location
+          schema:
+            type: string
+          description: Filter events by location (partial match)
+        - in: query
+          name: startDate
+          schema:
+            type: string
+            format: date # YYYY-MM-DD
+          description: Filter events starting on or after this date
+        - in: query
+          name: endDate
+          schema:
+            type: string
+            format: date # YYYY-MM-DD
+          description: Filter events ending on or before this date
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            enum: [date, title, createdAt]
+            default: date
+          description: Field to sort by
+        - in: query
+          name: order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+          description: Sort order
+        - in: query
+          name: page
+          schema:
+            type: integer
+            default: 1
+          description: Page number for pagination
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 10
+          description: Number of events per page
       responses:
         '200':
           description: A list of events
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/Event'
+                $ref: '#/components/schemas/EventsListResponse'
         '500':
           description: Internal Server Error
           content:
@@ -669,7 +727,7 @@ paths:
       summary: Create a new event
       tags: [Events]
       security:
-        - bearerAuth: [] # Requires authentication (Admin/Organizer role check in handler)
+        - bearerAuth: [] # Requires ORGANIZER or ADMIN role
       requestBody:
         required: true
         content:
@@ -682,7 +740,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Event'
+                $ref: '#/components/schemas/EventResponse'
         '400':
           description: Validation Error
           content:
@@ -696,7 +754,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-            description: Forbidden (Invalid token or insufficient role)
+            description: Forbidden (Invalid token or insufficient role - requires ORGANIZER or ADMIN)
             content:
               application/json:
                 schema:
@@ -712,6 +770,8 @@ paths:
     get:
       summary: Retrieve a single event by ID
       tags: [Events]
+      security:
+          - bearerAuth: [] # Optional, allows checking role for viewing non-published
       parameters:
         - in: path
           name: eventId
@@ -726,7 +786,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Event'
+                $ref: '#/components/schemas/EventResponse'
         '400':
            description: Invalid event ID format
            content:
@@ -734,7 +794,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
-          description: Event not found
+          description: Event not found (or not accessible to user)
           content:
             application/json:
               schema:
@@ -750,7 +810,7 @@ paths:
       summary: Update an existing event
       tags: [Events]
       security:
-        - bearerAuth: [] # Requires authentication (Admin/Organizer role check in handler)
+        - bearerAuth: [] # Requires ORGANIZER or ADMIN role
       parameters:
         - in: path
           name: eventId
@@ -771,7 +831,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Event'
+                $ref: '#/components/schemas/EventResponse'
         '400':
           description: Validation Error or Invalid event ID format
           content:
@@ -785,7 +845,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-            description: Forbidden (Invalid token, insufficient role, or not organizer)
+            description: Forbidden (Invalid token, insufficient role, or not organizer/admin)
             content:
               application/json:
                 schema:
@@ -807,7 +867,7 @@ paths:
       summary: Delete an event
       tags: [Events]
       security:
-        - bearerAuth: [] # Requires authentication (Admin/Organizer role check in handler)
+        - bearerAuth: [] # Requires ORGANIZER or ADMIN role
       parameters:
         - in: path
           name: eventId
@@ -820,7 +880,7 @@ paths:
         '204':
           description: Event deleted successfully (No Content)
         '400':
-           description: Invalid event ID format
+           description: Invalid event ID format or Cannot delete (e.g., due to bookings)
            content:
             application/json:
               schema:
@@ -832,7 +892,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '403':
-            description: Forbidden (Invalid token, insufficient role, or not organizer)
+            description: Forbidden (Invalid token, insufficient role, or not organizer/admin)
             content:
               application/json:
                 schema:
@@ -1076,7 +1136,10 @@ paths:
                       schema:
                         $ref: '#/components/schemas/ErrorResponse'
 
-# Add paths for /admin routes here if needed
+# TODO: Add /admin endpoints here
+# /admin/stats
+# /admin/users
+# /admin/settings/upi
 
 tags:
   - name: Auth

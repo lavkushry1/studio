@@ -7,7 +7,7 @@ export const RegisterSchema = z.object({
   body: z.object({
     email: z.string().email({ message: 'Invalid email address' }),
     password: z.string().min(6, { message: 'Password must be at least 6 characters long' }),
-    name: z.string().min(1, { message: 'Name is required' }).optional(), // Optional for initial registration maybe?
+    name: z.string().min(1, { message: 'Name is required' }).optional(),
     role: z.nativeEnum(UserRole).optional(), // Allow specifying role, defaults handled in service
   }),
 });
@@ -35,37 +35,42 @@ export type LogoutInput = RefreshTokenInput;
 
 // ========== Event Schemas ==========
 
+// Base schema for a ticket category during creation
+const TicketCategoryInputSchema = z.object({
+  name: z.string().min(1, { message: 'Category name is required' }),
+  price: z.number().positive({ message: 'Price must be positive' }),
+  totalQty: z.number().int().positive({ message: 'Total quantity must be a positive integer' }),
+});
+
 export const CreateEventSchema = z.object({
   body: z.object({
     title: z.string().min(1, { message: 'Event title is required' }),
     description: z.string().min(1, { message: 'Event description is required' }),
-    date: z.string().datetime({ message: 'Invalid date format' }), // Expect ISO string
+    date: z.string().datetime({ message: 'Invalid date-time format (ISO 8601 expected)' }), // Expect ISO string like "2024-12-31T19:00:00.000Z"
     location: z.string().min(1, { message: 'Event location is required' }),
     imageUrl: z.string().url({ message: 'Invalid image URL' }).optional(),
-    status: z.nativeEnum(EventStatus).optional(), // Defaults to DRAFT
-    ticketCategories: z.array(z.object({
-        name: z.string().min(1, {message: 'Category name is required'}),
-        price: z.number().positive({message: 'Price must be positive'}),
-        totalQty: z.number().int().positive({message: 'Total quantity must be a positive integer'}),
-    })).min(1, {message: 'At least one ticket category is required'}),
+    status: z.nativeEnum(EventStatus).optional(), // Defaults to DRAFT in service
+    ticketCategories: z.array(TicketCategoryInputSchema)
+                      .min(1, { message: 'At least one ticket category is required' }),
   }),
 });
 export type CreateEventInput = z.infer<typeof CreateEventSchema>['body'];
 
 export const UpdateEventSchema = z.object({
   params: z.object({
-      eventId: z.string().cuid({message: 'Invalid event ID format'}),
+      eventId: z.string().cuid({ message: 'Invalid event ID format' }),
   }),
   body: z.object({
     title: z.string().min(1).optional(),
     description: z.string().min(1).optional(),
     date: z.string().datetime().optional(),
     location: z.string().min(1).optional(),
-    imageUrl: z.string().url().optional().nullable(), // Allow removing image
+    imageUrl: z.string().url().optional().nullable(), // Allow removing image by passing null
     status: z.nativeEnum(EventStatus).optional(),
     // Note: Updating ticket categories might need a separate, more complex endpoint/logic
     // to handle additions, deletions, and modifications carefully, especially if bookings exist.
-    // For simplicity here, we allow updating general details.
+    // For simplicity here, we only allow updating general event details.
+    // ticketCategories: z.array(TicketCategoryInputSchema).optional(), // Excluded for now
   }),
 });
 export type UpdateEventInput = z.infer<typeof UpdateEventSchema>['body'];
@@ -73,14 +78,14 @@ export type UpdateEventParams = z.infer<typeof UpdateEventSchema>['params'];
 
 export const GetEventSchema = z.object({
     params: z.object({
-        eventId: z.string().cuid({message: 'Invalid event ID format'}),
+        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
     }),
 });
 export type GetEventParams = z.infer<typeof GetEventSchema>['params'];
 
 export const DeleteEventSchema = z.object({
     params: z.object({
-        eventId: z.string().cuid({message: 'Invalid event ID format'}),
+        eventId: z.string().cuid({ message: 'Invalid event ID format' }),
     }),
 });
 export type DeleteEventParams = z.infer<typeof DeleteEventSchema>['params'];

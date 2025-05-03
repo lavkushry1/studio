@@ -8,7 +8,7 @@ declare global {
         interface Request {
             user?: {
                 userId: string;
-                role: string;
+                role: string; // Store role as string initially from JWT
             };
         }
     }
@@ -24,12 +24,18 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
   const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
 
   if (!token) {
-    return res.status(401).json({ message: 'Unauthorized: No token provided' });
+    // Allow request to proceed if token is not provided,
+    // but don't attach user. Routes needing auth will fail later.
+    // This allows public routes to work without a token.
+    // If strict authentication is always needed, return 401 here.
+    // return res.status(401).json({ message: 'Unauthorized: No token provided' });
+    return next();
   }
 
   const decoded = verifyAccessToken(token);
 
   if (!decoded) {
+    // If token exists but is invalid/expired, deny access.
     return res.status(403).json({ message: 'Forbidden: Invalid or expired token' });
   }
 
@@ -44,16 +50,17 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
  */
 export const authorizeRole = (allowedRoles: UserRole[]) => {
   return (req: Request, res: Response, next: NextFunction) => {
+    // Ensure authenticateToken ran successfully and attached user
     if (!req.user || !req.user.role) {
-        // This should ideally not happen if authenticateToken runs first
       return res.status(401).json({ message: 'Unauthorized: User not authenticated' });
     }
 
-    if (!allowedRoles.includes(req.user.role as UserRole)) {
-      return res.status(403).json({ message: `Forbidden: Access denied for role ${req.user.role}` });
+    // Check if the user's role (from token) is included in the allowed roles
+    if (!allowedRoles.includes(req.user.role as UserRole)) { // Cast role string to UserRole enum
+      return res.status(403).json({ message: `Forbidden: Access denied. Required roles: ${allowedRoles.join(', ')}` });
     }
 
-    next();
+    next(); // User has the required role, proceed
   };
 };
 
@@ -62,5 +69,7 @@ export const authorizeRole = (allowedRoles: UserRole[]) => {
  */
 export const requireAdmin = authorizeRole([UserRole.ADMIN]);
 
-// Add requireOrganizer if needed later
-// export const requireOrganizer = authorizeRole([UserRole.ORGANIZER, UserRole.ADMIN]); // Admins can also organize
+/**
+ * Convenience middleware to specifically require ORGANIZER role (or ADMIN).
+ */
+export const requireOrganizer = authorizeRole([UserRole.ORGANIZER, UserRole.ADMIN]); // Admins can also organize

@@ -16,7 +16,7 @@ import { prisma } from '@/lib/prisma';
 
 // Import routes
 import authRoutes from './routes/auth'; // Import auth routes
-// import eventRoutes from './routes/events'; // Keep for later
+import eventRoutes from './routes/events'; // Import event routes
 // import bookingRoutes from './routes/bookings'; // Keep for later
 // import adminRoutes from './routes/admin'; // Keep for later
 
@@ -27,12 +27,14 @@ import fs from 'fs';
 
 let swaggerDocument: any = null;
 try {
-    const swaggerFilePath = path.join(__dirname, '..', 'swagger.yaml'); // Assuming swagger.yaml is in the project root
+    // Adjust path relative to the current file location (dist/server/index.js or server/index.ts)
+    // It needs to go up two levels from dist/server or one level from server
+    const swaggerFilePath = path.resolve(__dirname, '../../swagger.yaml');
     if (fs.existsSync(swaggerFilePath)) {
         swaggerDocument = YAML.load(swaggerFilePath);
         console.log('Swagger documentation loaded successfully.');
     } else {
-         console.warn('swagger.yaml not found at project root. API docs will not be available.');
+         console.warn(`swagger.yaml not found at ${swaggerFilePath}. API docs will not be available.`);
     }
 } catch (e) {
     console.error('Failed to load swagger.yaml:', e);
@@ -73,7 +75,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 
 // API Routes
 app.use('/api/auth', authRoutes); // Mount auth routes
-// app.use('/api/events', eventRoutes); // Uncomment when ready
+app.use('/api/events', eventRoutes); // Mount event routes
 // app.use('/api/bookings', bookingRoutes); // Uncomment when ready
 // app.use('/api/admin', adminRoutes); // Uncomment when ready
 
