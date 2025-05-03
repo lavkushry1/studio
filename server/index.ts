@@ -1,3 +1,4 @@
+
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -10,13 +11,16 @@ const envPath = process.env.NODE_ENV === 'production'
 
 dotenv.config({ path: envPath });
 
-import { PrismaClient } from '@prisma/client';
-import authRoutes from './routes/auth'; // Import authentication routes
-import eventRoutes from './routes/events'; // Import event routes
-import bookingRoutes from './routes/bookings'; // Import booking routes
-import adminRoutes from './routes/admin'; // Import admin routes
+// Use Prisma Client from the shared lib folder
+import { prisma } from '@/lib/prisma';
 
-// --- Swagger Setup (Optional but Recommended) ---
+// Import routes (to be added later)
+// import authRoutes from './routes/auth';
+// import eventRoutes from './routes/events';
+// import bookingRoutes from './routes/bookings';
+// import adminRoutes from './routes/admin';
+
+// --- Swagger Setup (Keep existing setup) ---
 import swaggerUi from 'swagger-ui-express';
 import YAML from 'yamljs'; // Or use JSON
 import fs from 'fs';
@@ -36,7 +40,6 @@ try {
 // --- End Swagger Setup ---
 
 
-const prisma = new PrismaClient();
 const app: Express = express();
 const port = process.env.PORT || 3001; // Backend runs on a different port
 
@@ -48,7 +51,7 @@ app.use(express.urlencoded({ extended: true })); // Parse URL-encoded request bo
 // Basic Logging Middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
-  // Log request body for debugging (optional, be careful with sensitive data)
+  // Optional: Log request body for debugging (be careful with sensitive data)
   // if (Object.keys(req.body).length > 0) {
   //   console.log(' Body:', JSON.stringify(req.body));
   // }
@@ -63,29 +66,23 @@ if (swaggerDocument) {
 // --- End API Documentation Route ---
 
 
-// API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/events', eventRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/admin', adminRoutes);
-
 // Simple health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// API Routes (to be added later)
+// app.use('/api/auth', authRoutes);
+// app.use('/api/events', eventRoutes);
+// app.use('/api/bookings', bookingRoutes);
+// app.use('/api/admin', adminRoutes);
+
 // Centralized Error Handling Middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error(`[ERROR] ${err.stack}`);
   // Basic error handling - expand as needed
-  if (err.message.includes('Validation failed')) {
-      // Already handled by validateRequest middleware, but catch here just in case
-      // The validateRequest middleware should ideally send the response itself.
-      // This block might not be necessary if validateRequest always sends a response on error.
-      return res.status(400).json({ message: 'Validation Error', details: err.message });
-  }
-   // Add handling for specific Prisma errors if needed (e.g., unique constraint)
-   // if (err instanceof Prisma.PrismaClientKnownRequestError) { ... }
+  // Add handling for specific Prisma errors if needed (e.g., unique constraint)
+  // if (err instanceof Prisma.PrismaClientKnownRequestError) { ... }
 
   res.status(500).json({ message: 'Internal Server Error', error: err.message }); // Avoid sending stack in production
 });
@@ -98,7 +95,7 @@ app.use('/api/*', (req: Request, res: Response) => {
 
 async function startServer() {
   try {
-    // Test database connection
+    // Test database connection using Prisma
     await prisma.$connect();
     console.log('Database connected successfully.');
 
@@ -130,3 +127,6 @@ async function startServer() {
 }
 
 startServer();
+
+// Export the app instance for potential testing or extension
+// export default app; // Uncomment if needed
